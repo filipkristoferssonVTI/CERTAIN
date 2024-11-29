@@ -1,28 +1,12 @@
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-import networkx as nx
 import pandas as pd
 from pgmpy.estimators import MaximumLikelihoodEstimator
 from pgmpy.inference import VariableElimination
 from pgmpy.models import BayesianNetwork
 
 
-def plot_model(model):
-    pos = nx.circular_layout(model)
-    nx.draw(model, pos=pos, with_labels=True)
-    plt.draw()
-    plt.show()
-
-
-def cpd_to_df(cpd, col_node, row_node):
-    return pd.DataFrame(cpd.get_values(), columns=cpd.state_names[col_node], index=cpd.state_names[row_node])
-
-
-def main():
-    data_folder = Path('data')
-    df = pd.read_csv(data_folder / 'Kopia av Daedalos export - Insatta resurser 2201 2411.csv', sep=';')
-
+def filter_data(df):
     # TODO: Remove this.
     df = df.loc[df['Händelse, uppdrag'] == 'Brand']
 
@@ -45,7 +29,15 @@ def main():
 
     df['vehicle_bins'] = pd.cut(df['vehicles'], bins=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, max(df['vehicles'])])
 
-    df = df.drop(columns=['Ärende, årsnr', 'vehicles'])
+    df = df.drop(columns=['Ärende, årsnr', 'Plats, miljö', 'vehicles'])
+    return df
+
+
+def main():
+    data_folder = Path('data')
+    df = pd.read_csv(data_folder / 'Kopia av Daedalos export - Insatta resurser 2201 2411.csv', sep=';')
+
+    df = filter_data(df)
 
     # TODO: Are these reasonable dependencies?
     model = BayesianNetwork([('Händelse, typ', 'Ärende, förmodad händelse'),
