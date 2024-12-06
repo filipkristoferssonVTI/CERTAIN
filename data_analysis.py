@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+from scipy.stats import gaussian_kde
 
 
 @dataclass
@@ -23,7 +26,7 @@ class Insats:
 class Insatsbeslut:
     station: list[str]
     enhet: list[str]
-    id: str = field(init=False)
+    id: tuple[tuple[str, ...], tuple[str, ...]] = field(init=False)
 
     @classmethod
     def from_group(cls, group):
@@ -33,7 +36,11 @@ class Insatsbeslut:
         self.station.sort()
         self.enhet.sort()
         assert len(self.station) == len(self.enhet)
-        self.id = f'{"_".join(self.station + self.enhet)}'
+        self.id = (tuple(sorted(self.station)), tuple(sorted(self.enhet)))
+
+    def __hash__(self):
+        # This ensures objects can be used in sets or as dictionary keys
+        return hash(self.id)
 
 
 @dataclass
@@ -83,7 +90,6 @@ def group_data(df):
 
         # TODO: How do we want to handle dupl resurs-id in same group, what does this mean?
         insatsbeslut = Insatsbeslut.from_group(group)
-
         insats = Insats.from_group(group)
 
         data.append(Arende(plats=plats,
@@ -109,6 +115,20 @@ def clean_data(df):
     return df
 
 
+def plot(data):
+    kde = gaussian_kde(data)
+    x_values = np.linspace(min(data), max(data), 1000)
+    density = kde(x_values)
+
+    plt.hist(data, bins='auto')
+    plt.xlim(0, 60)
+    plt.show()
+
+    # KDE (Smooth Distribution)
+    plt.plot(x_values, density)
+    plt.show()
+
+
 def main():
     data_folder = Path('data')
     df = pd.read_csv(data_folder / 'Kopia av Daedalos export - Insatta resurser 2201 2411.csv', sep=';')
@@ -117,16 +137,24 @@ def main():
     data = group_data(df)
     data_df = arende_list_2_df(data)
 
-    most_freq = data_df['insatsbeslut'].value_counts().idxmax()
+    most_freq_insatsbeslut = data_df['insatsbeslut'].value_counts().idxmax()
+    first_enhet_most_freq_insatsbeslut = most_freq_insatsbeslut[1][0]
 
-    insats_most_freq = []
+    insatsbeslut_most_freq_first_enhet_tt = []
     for arende in data:
-        if arende.insatsbeslut.id == most_freq:
-            insats_most_freq.append(arende.insats)
+        if arende.insatsbeslut.id == most_freq_insatsbeslut:
+            for item in arende.insats.insats:
+                if item['Resurs, enhet'] == first_enhet_most_freq_insatsbeslut:
+                    # TODO: Missing time is excluded, how do we handle these?
+                    if not pd.isnull(item['Resurs, tid kvittens']) and not pd.isnull(item['Resurs, tid framme']):
+                        travel_time = item['Resurs, tid framme'] - item['Resurs, tid kvittens']
+                        travel_time = round(travel_time.seconds / 60)
+                        insatsbeslut_most_freq_first_enhet_tt.append(travel_time)
 
-    # TODO: Create some sort of distribution of insats_most_freq as a test
+    plot(insatsbeslut_most_freq_first_enhet_tt)
 
     # plats_handelse = pd.crosstab(data_df['plats'], data_df['handelse'])
+    # arende_insatsbeslut = pd.crosstab(data_df['arende'], data_df['insatsbeslut'].astype(str))
 
     DEBUG = 1
 
