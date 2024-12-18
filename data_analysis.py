@@ -1,66 +1,25 @@
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import plotly.express as px
 from scipy.stats import gaussian_kde
 
 
-@dataclass
-class Insats:
-    insats: list[dict]
+def save_df_to_json(df, filename, orient='records'):
+    try:
+        json_data = df.to_json(orient=orient, indent=4, force_ascii=False)
+        with open(filename, 'w', encoding='utf-8') as json_file:
+            json_file.write(json_data)
 
-    @classmethod
-    def from_group(cls, group):
-        group = group[['Resurs, enhet',
-                       'Resurs, tid larm',
-                       'Resurs, tid kvittens',
-                       'Resurs, tid klar',
-                       'Resurs, tid framme',
-                       'Resurs, tid avslut']]
-        return cls(group.to_dict(orient='records'))
-
-
-@dataclass
-class Insatsbeslut:
-    station: list[str]
-    enhet: list[str]
-    id: tuple[tuple[str, ...], tuple[str, ...]] = field(init=False)
-
-    @classmethod
-    def from_group(cls, group):
-        return cls(group['Resurs, station'].tolist(), group['Resurs, enhet'].tolist())
-
-    def __post_init__(self):
-        self.station.sort()
-        self.enhet.sort()
-        assert len(self.station) == len(self.enhet)
-        self.id = (tuple(sorted(self.station)), tuple(sorted(self.enhet)))
-
-    def __hash__(self):
-        # This ensures objects can be used in sets or as dictionary keys
-        return hash(self.id)
-
-
-@dataclass
-class Arende:
-    plats: str
-    handelse: str
-    arende: str
-    insatsbeslut: Insatsbeslut
-    insats: Insats
-
-
-def arende_list_2_df(arende_list):
-    return pd.DataFrame([{'plats': a.plats,
-                          'handelse': a.handelse,
-                          'arende': a.arende,
-                          'insatsbeslut': a.insatsbeslut.id} for a in arende_list])
+        print(f"DataFrame successfully saved to {filename} in JSON format.")
+    except Exception as e:
+        print(f"An error occurred while saving the DataFrame: {e}")
 
 
 def check_column_uniformity(df, col):
-    """Ignores nan."""
+    """Ignores NA."""
     non_nan_values = df[col].dropna()
     if non_nan_values.empty:
         return None
@@ -68,14 +27,13 @@ def check_column_uniformity(df, col):
     if len(unique_values) == 1:
         return unique_values[0]
     else:
-        raise ValueError(f"The column '{col}' contains multiple unique non-NaN values: {unique_values}")
+        raise ValueError(f"The column '{col}' contains multiple unique non-NA values: {unique_values}")
 
 
-def no_duplicates_except_nan(group, col):
-    if len(group) > 1:
-        non_nan_values = group[col].dropna()
-        return not non_nan_values.duplicated().any()
-    return True
+def drop_invalid_rows(group):
+    if group.duplicated(subset='Resurs, enhet', keep=False).any():
+        group = group.loc[group.groupby('Resurs, enhet')['Resurs, tid total'].idxmax()]
+    return group
 
 
 def group_data(df):
@@ -86,24 +44,35 @@ def group_data(df):
     for name, group in groups:
         plats = check_column_uniformity(group, 'Plats, miljö')
         handelse = check_column_uniformity(group, 'Händelse, typ')
-        arende = check_column_uniformity(group, 'Ärende, förmodad händelse')
+        manad = check_column_uniformity(group, 'Tid, månad')
+        timme = check_column_uniformity(group, 'Tid, timme')
+        geo_nord = check_column_uniformity(group, 'Geo, nord')
+        geo_ost = check_column_uniformity(group, 'Geo, ost')
 
-        # TODO: How do we want to handle dupl resurs-id in same group, what does this mean?
-        insatsbeslut = Insatsbeslut.from_group(group)
-        insats = Insats.from_group(group)
+        # TODO: Only include certain 'Resurs, uppgift'?
 
-        data.append(Arende(plats=plats,
-                           handelse=handelse,
-                           arende=arende,
-                           insatsbeslut=insatsbeslut,
-                           insats=insats))
+        group = drop_invalid_rows(group)
 
-    return data
+        insatsstyrka = frozenset(group['veh_type'].value_counts(dropna=False).items())
+
+        data.append({'plats': plats,
+                     'handelse': handelse,
+                     'manad': manad,
+                     'timme': timme,
+                     'geo_nord': geo_nord,
+                     'geo_ost': geo_ost,
+                     'insatsstyrka': insatsstyrka})
+
+    return pd.DataFrame(data)
 
 
 def clean_data(df):
-    df['Resurs, station'] = df['Resurs, station'].astype(str)
-    df['Resurs, enhet'] = df['Resurs, enhet'].astype(str)
+    df = df.convert_dtypes()
+
+    df['veh_type'] = df['Resurs, enhet'].str[-2:]
+
+    df['Geo, nord'] = df['Geo, nord'].str.replace(' ', '').replace('0', pd.NA).astype('Int64')
+    df['Geo, ost'] = df['Geo, ost'].str.replace(' ', '').replace('0', pd.NA).astype('Int64')
 
     df['Resurs, tid larm'] = pd.to_datetime(df['Resurs, tid larm'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
     df['Resurs, tid kvittens'] = pd.to_datetime(df['Resurs, tid kvittens'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
@@ -111,11 +80,19 @@ def clean_data(df):
     df['Resurs, tid framme'] = pd.to_datetime(df['Resurs, tid framme'], format='%Y-%m-%d %H:%M', errors='coerce')
     df['Resurs, tid avslut'] = pd.to_datetime(df['Resurs, tid avslut'], format='%Y-%m-%d %H:%M', errors='coerce')
 
+    # TODO: From Michael: "'Resurs, tid klar' är när resursen är klar på skadeplatsen,
+    #  'Resurs, tid avslut' är när resursen är helt klar med ärendet, är återställd och klar för nya larm."
+    #  How do we find the travel time back to the station (does the vehicle travel back)?
+
+    df['Resurs, tid total'] = df['Resurs, tid klar'] - df['Resurs, tid larm']
+    # To work in drop_invalid_rows
+    df['Resurs, tid total'] = df['Resurs, tid total'].fillna(df['Resurs, tid total'].min())
+
     df = df.map(lambda x: x.strip() if isinstance(x, str) else x)  # strip leading and trailing whitespaces
     return df
 
 
-def plot(data):
+def plot_kde(data):
     kde = gaussian_kde(data)
     x_values = np.linspace(min(data), max(data), 1000)
     density = kde(x_values)
@@ -129,34 +106,47 @@ def plot(data):
     plt.show()
 
 
+def plot_insatsstyrka_hist(data):
+    insatsstyrka = data['insatsstyrka'].value_counts().reset_index()
+    insatsstyrka['percentage'] = (insatsstyrka['count'] / insatsstyrka['count'].sum()) * 100
+    insatsstyrka['cumulative_percentage'] = insatsstyrka['percentage'].cumsum()
+
+    insatsstyrka['insatsstyrka'] = insatsstyrka['insatsstyrka'].apply(lambda x: ', '.join(f"{k}: {v}" for k, v in x))
+
+    fig = px.bar(insatsstyrka, x='insatsstyrka', y='count')
+    fig2 = px.bar(insatsstyrka, x='insatsstyrka', y='cumulative_percentage')
+    fig.show()
+    fig2.show()
+
+
+def plot_handelse_insatsstyrka_coverage(data):
+    insatsstyrka = data['insatsstyrka'].value_counts().reset_index()
+    insatsstyrka['percentage'] = (insatsstyrka['count'] / insatsstyrka['count'].sum()) * 100
+    insatsstyrka['cumulative_percentage'] = insatsstyrka['percentage'].cumsum()
+
+    above_limit = insatsstyrka.loc[insatsstyrka['cumulative_percentage'] <= 95, 'insatsstyrka']
+    data['above_limit'] = data['insatsstyrka'].isin(above_limit)
+
+    coverage_data = (data.groupby('handelse')['above_limit']
+                     .mean()  # Calculate the mean (percentage of True values)
+                     .mul(100)  # Convert to percentage
+                     .reset_index()
+                     .rename(columns={'above_limit': 'coverage_percentage'})
+                     .sort_values(by='coverage_percentage', ascending=False))
+
+    fig = px.bar(coverage_data, y='coverage_percentage', x='handelse')
+    fig.show()
+
+
 def main():
     data_folder = Path('data')
-    df = pd.read_csv(data_folder / 'Kopia av Daedalos export - Insatta resurser 2201 2411.csv', sep=';')
+    df = pd.read_csv(data_folder / 'Kopia av Daedalos export - Insatta resurser 2201 2411.csv', sep=';', skipfooter=1,
+                     engine='python')
 
     df = clean_data(df)
-    data = group_data(df)
-    data_df = arende_list_2_df(data)
+    df = group_data(df)
 
-    most_freq_insatsbeslut = data_df['insatsbeslut'].value_counts().idxmax()
-    first_enhet_most_freq_insatsbeslut = most_freq_insatsbeslut[1][0]
-
-    insatsbeslut_most_freq_first_enhet_tt = []
-    for arende in data:
-        if arende.insatsbeslut.id == most_freq_insatsbeslut:
-            for item in arende.insats.insats:
-                if item['Resurs, enhet'] == first_enhet_most_freq_insatsbeslut:
-                    # TODO: Missing time is excluded, how do we handle these?
-                    if not pd.isnull(item['Resurs, tid kvittens']) and not pd.isnull(item['Resurs, tid framme']):
-                        travel_time = item['Resurs, tid framme'] - item['Resurs, tid kvittens']
-                        travel_time = round(travel_time.seconds / 60)
-                        insatsbeslut_most_freq_first_enhet_tt.append(travel_time)
-
-    plot(insatsbeslut_most_freq_first_enhet_tt)
-
-    # plats_handelse = pd.crosstab(data_df['plats'], data_df['handelse'])
-    # arende_insatsbeslut = pd.crosstab(data_df['arende'], data_df['insatsbeslut'].astype(str))
-
-    DEBUG = 1
+    plot_handelse_insatsstyrka_coverage(df)
 
 
 if __name__ == '__main__':
