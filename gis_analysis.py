@@ -36,7 +36,7 @@ def create_population_grid(data_folder):
         data_folder / 'gis' / 'Topografi 1M Nedladdning, vektor' / 'administrativindelning_sverige.gpkg',
         layer='lansyta')
 
-    case_area = counties.loc[counties['lansnamn'] == 'Östergötlands län']
+    case_area = counties.loc[counties['lansnamn'] == 'Östergötlands län']  # TODO: Only ÖG?
 
     grid = gpd.read_file(data_folder / 'gis' / 'scb' / 'TotRut_SweRef.gpkg')
     popu = gpd.read_file(data_folder / 'gis' / 'scb' / 'totalbefolkning_1km_231231.gpkg')
@@ -53,19 +53,24 @@ def main():
 
     df = pd.read_csv(data_folder / 'Kopia av Daedalos export - Insatta resurser 2201 2411.csv', sep=';', skipfooter=1,
                      engine='python')
+    mark = gpd.read_file(data_folder / 'gis' / 'Topografi 50 Nedladdning, vektor, ln05' / 'mark_ln05.gpkg',
+                         layer='mark')
 
     df = clean_data(df)
     df = group_data(df)
-
     gdf = assign_geometry(df, x_col='geo_ost', y_col='geo_nord', crs='EPSG:3006')
 
-    grid = create_population_grid(data_folder)
+    handelse_mark = gpd.sjoin(gdf, mark, how="inner", predicate="within")
+    handelse_mark_ct = pd.crosstab(handelse_mark["handelse"], handelse_mark["objekttyp"])
 
-    # TODO: DeSO vs 1x1km grid?
-    grid = count_points_in_polygons(grid, gdf, 'rut_id')
+    DEBUG = 1
 
-    plot_choropleth(grid)
+    # # TODO: DeSO (no popu yet) vs 1x1km grid?
+    # grid = create_population_grid(data_folder)
+    # grid = count_points_in_polygons(grid, gdf, 'rut_id')
+    # plot_choropleth(grid)
 
+    # handelse_mark_ct.to_csv('händelse_mark.csv')
     # gdf.to_file(data_folder / 'output' / 'ärenden.gpkg', driver='GPKG')
     # deso.to_file(data_folder / 'output' / 'deso.gpkg', driver='GPKG')
     # grid.to_file(data_folder / 'output' / 'grid.gpkg', driver='GPKG')
