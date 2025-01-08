@@ -32,47 +32,67 @@ def plot_choropleth(data):
 
 
 def create_population_grid(data_folder):
-    counties = gpd.read_file(
-        data_folder / 'gis' / 'Topografi 1M Nedladdning, vektor' / 'administrativindelning_sverige.gpkg',
-        layer='lansyta')
-
-    case_area = counties.loc[counties['lansnamn'] == 'Östergötlands län']  # TODO: Only ÖG?
-
     grid = gpd.read_file(data_folder / 'gis' / 'scb' / 'TotRut_SweRef.gpkg')
     popu = gpd.read_file(data_folder / 'gis' / 'scb' / 'totalbefolkning_1km_231231.gpkg')
-
-    grid = gpd.sjoin(grid, case_area, how='inner', predicate='intersects')
 
     grid = grid.merge(popu[['Ruta', 'POP']], how='left', left_on='rut_id', right_on='Ruta')
     grid['POP'] = grid['POP'].fillna(0).astype(int)
     return grid[['rut_id', 'POP', 'geometry']]
 
 
-def main():
-    data_folder = Path('data')
-
+def process_arenden(data_folder):
     df = pd.read_csv(data_folder / 'Kopia av Daedalos export - Insatta resurser 2201 2411.csv', sep=';', skipfooter=1,
                      engine='python')
-    mark = gpd.read_file(data_folder / 'gis' / 'Topografi 50 Nedladdning, vektor, ln05' / 'mark_ln05.gpkg',
-                         layer='mark')
-
     df = clean_data(df)
     df = group_data(df)
     gdf = assign_geometry(df, x_col='geo_ost', y_col='geo_nord', crs='EPSG:3006')
+    return gdf
 
-    handelse_mark = gpd.sjoin(gdf, mark, how="inner", predicate="within")
-    handelse_mark_ct = pd.crosstab(handelse_mark["handelse"], handelse_mark["objekttyp"])
 
-    DEBUG = 1
+def merge_grid_mark(grid, mark):
+    intersections = gpd.overlay(grid, mark, how='intersection')
+    intersections['objekttyp_area'] = intersections.geometry.area
 
-    # # TODO: DeSO (no popu yet) vs 1x1km grid?
-    # grid = create_population_grid(data_folder)
-    # grid = count_points_in_polygons(grid, gdf, 'rut_id')
-    # plot_choropleth(grid)
+    aggregated = intersections.groupby(['rut_id', 'objekttyp'], as_index=False).agg({'objekttyp_area': 'sum'})
 
-    # handelse_mark_ct.to_csv('händelse_mark.csv')
-    # gdf.to_file(data_folder / 'output' / 'ärenden.gpkg', driver='GPKG')
-    # deso.to_file(data_folder / 'output' / 'deso.gpkg', driver='GPKG')
+    result = aggregated.pivot_table(index='rut_id', columns='objekttyp', values='objekttyp_area', fill_value=0)
+    return grid.set_index('rut_id').join(result, how='left').reset_index()
+
+
+def merge_grid_road(grid, road):
+    intersections = gpd.sjoin(grid, road, how='left', predicate='intersects')
+
+    presence = (
+        intersections.groupby(['rut_id', 'Typ'])
+        .size()
+        .unstack(fill_value=0)
+        .map(lambda x: 1 if x > 0 else 0)
+    )
+
+    return grid.set_index('rut_id').join(presence, how='left').fillna(0).reset_index()
+
+
+def main():
+    data_folder = Path('data')
+
+    road = gpd.read_file(data_folder / 'gis' / 'lastkajen' / 'Vägslag_516890.gpkg')
+    mark = gpd.read_file(data_folder / 'gis' / 'Topografi 50 Nedladdning, vektor' / 'mark_sverige.gpkg', layer='mark')
+    grid = create_population_grid(data_folder)
+    arenden = process_arenden(data_folder)
+
+    plats_mark = gpd.sjoin(arenden, mark, how="inner", predicate="within")
+    plats_mark_ct = pd.crosstab(plats_mark["plats"], plats_mark["objekttyp"])
+
+    # We only need the cells that actually contains an arende in this section.
+    grid = grid[grid.intersects(arenden.union_all())]
+
+    grid = merge_grid_mark(grid, mark)
+    grid = merge_grid_road(grid, road)
+
+    grid = count_points_in_polygons(grid, arenden, 'rut_id')
+
+    # plats_mark_ct.to_csv(data_folder / 'output' / 'plats_mark_ct.csv')
+    # arenden.to_file(data_folder / 'output' / 'ärenden.gpkg', driver='GPKG')
     # grid.to_file(data_folder / 'output' / 'grid.gpkg', driver='GPKG')
 
 
