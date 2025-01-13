@@ -89,7 +89,16 @@ def main():
     grid = merge_grid_mark(grid, mark)
     grid = merge_grid_road(grid, road)
 
-    grid = count_points_in_polygons(grid, arenden, 'rut_id')
+    # For EDA
+    cols_2_modify = [col for col in grid.columns if col not in ['rut_id', 'POP', 'geometry']]
+    grid[cols_2_modify] = grid[cols_2_modify].map(lambda x: True if x > 0 else False)
+    arenden = gpd.sjoin(arenden, grid[['geometry', 'rut_id']], how="left", predicate="within")
+    arenden = arenden[['rut_id', 'handelse']]
+    grid = grid.drop(columns=['geometry'])
+    arenden.to_csv(data_folder / 'output' / 'eda' / 'ärenden.csv', index=False)
+    grid.to_csv(data_folder / 'output' / 'eda' / 'grid.csv', index=False)
+
+    # grid = count_points_in_polygons(grid, arenden, 'rut_id')
 
     # plats_mark_ct.to_csv(data_folder / 'output' / 'plats_mark_ct.csv')
     # arenden.to_file(data_folder / 'output' / 'ärenden.gpkg', driver='GPKG')
