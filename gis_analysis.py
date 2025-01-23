@@ -32,8 +32,16 @@ def plot_choropleth(data):
 
 
 def create_population_grid(data_folder):
+    counties = gpd.read_file(
+        data_folder / 'gis' / 'Topografi 1M Nedladdning, vektor' / 'administrativindelning_sverige.gpkg',
+        layer='lansyta')
+
+    case_area = counties.loc[counties['lansnamn'] == 'Östergötlands län']  # TODO: Only ÖG?
+
     grid = gpd.read_file(data_folder / 'gis' / 'scb' / 'TotRut_SweRef.gpkg')
     popu = gpd.read_file(data_folder / 'gis' / 'scb' / 'totalbefolkning_1km_231231.gpkg')
+
+    grid = gpd.sjoin(grid, case_area, how='inner', predicate='intersects')
 
     grid = grid.merge(popu[['Ruta', 'POP']], how='left', left_on='rut_id', right_on='Ruta')
     grid['POP'] = grid['POP'].fillna(0).astype(int)
@@ -83,26 +91,20 @@ def main():
     plats_mark = gpd.sjoin(arenden, mark, how="inner", predicate="within")
     plats_mark_ct = pd.crosstab(plats_mark["plats"], plats_mark["objekttyp"])
 
-    # We only need the cells that actually contains an arende in this section.
-    grid = grid[grid.intersects(arenden.union_all())]
-
-    grid = merge_grid_mark(grid, mark)
-    grid = merge_grid_road(grid, road)
+    grid_mark = merge_grid_mark(grid, mark)
+    grid_road = merge_grid_road(grid, road)  # TODO: Do we want to use road info somehow?
 
     # For EDA
-    cols_2_modify = [col for col in grid.columns if col not in ['rut_id', 'POP', 'geometry']]
-    grid[cols_2_modify] = grid[cols_2_modify].map(lambda x: True if x > 0 else False)
-    arenden = gpd.sjoin(arenden, grid[['geometry', 'rut_id']], how="left", predicate="within")
-    arenden = arenden[['rut_id', 'handelse']]
-    grid = grid.drop(columns=['geometry'])
-    arenden.to_csv(data_folder / 'output' / 'eda' / 'ärenden.csv', index=False)
-    grid.to_csv(data_folder / 'output' / 'eda' / 'grid.csv', index=False)
+    arenden = gpd.sjoin(arenden, grid_mark[['geometry', 'rut_id']], how="left", predicate="within")
+
+    arenden[['rut_id', 'handelse']].to_csv(data_folder / 'output' / 'eda' / 'ärenden.csv', index=False)
+    grid_mark.drop(columns='geometry').to_csv(data_folder / 'output' / 'eda' / 'grid_mark.csv', index=False)
 
     # grid = count_points_in_polygons(grid, arenden, 'rut_id')
 
     # plats_mark_ct.to_csv(data_folder / 'output' / 'plats_mark_ct.csv')
-    # arenden.to_file(data_folder / 'output' / 'ärenden.gpkg', driver='GPKG')
-    # grid.to_file(data_folder / 'output' / 'grid.gpkg', driver='GPKG')
+    arenden.to_file(data_folder / 'output' / 'ärenden.gpkg', driver='GPKG')
+    grid.to_file(data_folder / 'output' / 'grid.gpkg', driver='GPKG')
 
 
 if __name__ == '__main__':
