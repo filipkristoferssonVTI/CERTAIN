@@ -1,0 +1,8 @@
+name: CERTAIN
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - plotly=5.24.1
+  - pandas=2.2.2
