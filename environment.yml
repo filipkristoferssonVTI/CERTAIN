@@ -4,5 +4,7 @@ channels:
   - defaults
 dependencies:
   - python=3.11
+  - ydata-profiling=4.12.1
   - plotly=5.24.1
-  - pandas=2.2.2
+  - pip:
+      - fpdf2=2.8.2
