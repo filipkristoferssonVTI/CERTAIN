@@ -5,11 +5,9 @@ import fpdf
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import scipy.optimize as opt
 import scipy.stats as stats
-from scipy.linalg import lstsq
-from statsmodels.compat import scipy
+import seaborn as sns
 
 
 def create_pdf_from_folder(folder_name, save_path):
@@ -35,7 +33,6 @@ def r2(y, y_pred):
 
 
 def save_regression_plot(y, y_pred, handelse_id, save_path):
-
     plt.scatter(y, y_pred, color="blue", alpha=0.6)
     plt.xlabel("Actual Values")
     plt.ylabel("Predicted Values")
@@ -49,18 +46,19 @@ def save_regression_plot(y, y_pred, handelse_id, save_path):
     plt.savefig(f'{save_path}.png', dpi=300, bbox_inches="tight")
     plt.close()
 
-def print_confidence(y, y_pred, confidence):
 
+def print_confidence(y, y_pred, confidence):
     conf_intervals = np.array([stats.poisson.interval(confidence, m) for m in y_pred])
     # print(conf_intervals)
     # input("Waiting")
 
-    within_band = (y >= conf_intervals[:,0]) & (y <= conf_intervals[:,1])
+    within_band = (y >= conf_intervals[:, 0]) & (y <= conf_intervals[:, 1])
     oneormore = (y_pred >= 1)
     within_band_and_oneormore = (within_band & oneormore)
     print("    ", np.round(100 * np.sum(within_band) / y.shape[0], 2), "% within ", confidence, "-confidence")
     print("    ", np.round(np.sum(oneormore), 2), "observations >=1")
-    print("    ", np.round(100 * np.sum(within_band_and_oneormore) / np.sum(oneormore), 2), "% of >=1 observations within confidence")
+    print("    ", np.round(100 * np.sum(within_band_and_oneormore) / np.sum(oneormore), 2),
+          "% of >=1 observations within confidence")
 
 
 def plot_heatmap(df, save_path):
@@ -69,11 +67,13 @@ def plot_heatmap(df, save_path):
     plt.savefig(f'{save_path}.png', dpi=300, bbox_inches="tight")
     plt.close()
 
+
 # Define the Poisson negative log-likelihood
 def poisson_neg_log_likelihood(beta, X, y):
     linear_pred = X @ beta
     expected_counts = np.exp(linear_pred)  # Poisson mean
     return -np.sum(y * linear_pred - expected_counts)  # Negative log-likelihood
+
 
 def main():
     data_folder = Path('data/output/eda')
@@ -85,7 +85,6 @@ def main():
     coeffs = {}
 
     for single_handelse in handelse['handelse'].dropna().unique():
-
         print(single_handelse)
 
         handelse_count = handelse.loc[handelse['handelse'] == single_handelse].groupby('rut_id').count().reset_index()
@@ -97,7 +96,7 @@ def main():
         n_samples, n_features = design_matrix.shape
         # print(n_samples)
         # print(n_features)
-        #input("Pausing...")
+        # input("Pausing...")
 
         beta_init = np.zeros(n_features)
         result = opt.minimize(poisson_neg_log_likelihood, beta_init, args=(design_matrix, y), method="L-BFGS-B")
@@ -113,18 +112,19 @@ def main():
 
         print_confidence(y, y_pred, 0.95)
 
-        save_regression_plot(y, y_pred, single_handelse, output_folder / single_handelse)
+        save_regression_plot(y, y_pred, single_handelse, output_folder / 'plots' / single_handelse)
 
     print("Done with estimation, about to create pdf")
 
-    create_pdf_from_folder(output_folder, output_folder / 'regression_test.pdf')
+    create_pdf_from_folder(output_folder / 'plots', output_folder / 'regression_test.pdf')
 
     print("Done with pdf, about to create heatmap")
 
-    heatmap_df = pd.DataFrame(coeffs.values(),
-                              columns=grid.drop(columns=['rut_id', 'POP']).columns,
-                              index=[handelse_id for handelse_id in coeffs.keys()])
-    # plot_heatmap(heatmap_df, output_folder / 'heatmap')
+    coefficients_df = pd.DataFrame(coeffs.values(),
+                                   columns=grid.drop(columns=['rut_id', 'POP']).columns.tolist() + ['intercept'],
+                                   index=[handelse_id for handelse_id in coeffs.keys()])
+
+    coefficients_df.to_csv(output_folder / 'coefficients.csv')
 
 
 if __name__ == '__main__':
