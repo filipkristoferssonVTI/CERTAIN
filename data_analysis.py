@@ -45,6 +45,7 @@ def group_data(df):
         plats = check_column_uniformity(group, 'Plats, miljö')
         handelse = check_column_uniformity(group, 'Händelse, typ')
         manad = check_column_uniformity(group, 'Tid, månad')
+        veckodag = check_column_uniformity(group, 'Tid, veckodag')
         timme = check_column_uniformity(group, 'Tid, timme')
         geo_nord = check_column_uniformity(group, 'Geo, nord')
         geo_ost = check_column_uniformity(group, 'Geo, ost')
@@ -58,6 +59,7 @@ def group_data(df):
         data.append({'plats': plats,
                      'handelse': handelse,
                      'manad': manad,
+                     'veckodag': veckodag,
                      'timme': timme,
                      'geo_nord': geo_nord,
                      'geo_ost': geo_ost,

@@ -80,6 +80,15 @@ def merge_grid_road(grid, road):
     return grid.set_index('rut_id').join(presence, how='left').fillna(0).reset_index()
 
 
+def add_time_of_year(arenden):
+    arenden['dagtid'] = arenden['timme'].apply(lambda x: 1 if 7 <= x <= 18 else 0)
+    arenden['vardag'] = arenden['veckodag'].str[:2].astype(int).apply(lambda x: 1 if x <= 5 else 0)
+    arenden['summer'] = arenden['manad'].str[:2].astype(int).apply(lambda x: 1 if 6 <= x <= 8 else 0)
+    arenden['spring'] = arenden['manad'].str[:2].astype(int).apply(lambda x: 1 if 3 <= x <= 5 else 0)
+    arenden['autumn'] = arenden['manad'].str[:2].astype(int).apply(lambda x: 1 if 9 <= x <= 11 else 0)
+    return arenden
+
+
 def main():
     data_folder = Path('data')
 
@@ -94,10 +103,13 @@ def main():
     grid_mark = merge_grid_mark(grid, mark)
     grid_road = merge_grid_road(grid, road)  # TODO: Do we want to use road info somehow?
 
+    arenden = add_time_of_year(arenden)
+
     # For EDA
     arenden = gpd.sjoin(arenden, grid_mark[['geometry', 'rut_id']], how="left", predicate="within")
 
-    arenden[['rut_id', 'handelse']].to_csv(data_folder / 'output' / 'eda' / 'ärenden.csv', index=False)
+    arenden[['rut_id', 'handelse', 'dagtid', 'vardag', 'summer', 'spring', 'autumn']].to_csv(
+        data_folder / 'output' / 'eda' / 'ärenden.csv', index=False)
     grid_mark.drop(columns='geometry').to_csv(data_folder / 'output' / 'eda' / 'grid_mark.csv', index=False)
 
     # grid = count_points_in_polygons(grid, arenden, 'rut_id')
