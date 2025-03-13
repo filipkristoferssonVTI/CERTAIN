@@ -16,10 +16,13 @@ def calculate_efficiency(v):
     # Formula and rolling resitance value from page 26
     # Other values from page 31, Volvo FH Summer
     #
-    # Literature says the FH electric takes 1.1 kWh/km, numbers below gives 1.04 kWh/km.
+    # Literature says the FH electric takes 1.1 kWh/km, numbers below gives 1.05 kWh/km.
     # Can probably be calibrated
     #
     # Assumes v in km/h, conversion to m/s in function
+    #
+    # This formula also does not take wind speed into account, 
+    # which affects the energ efficiency more at higher speeds
 
     v = v/3.6 # m/s, vehicle velocity
 
@@ -28,11 +31,13 @@ def calculate_efficiency(v):
     A = 9.7 # m^2, frontal area
     m = 40000 # kg, mass of vehicle
     g = 9.82 # m/s^2, gravitational acceleration (Sweden)
-    fr = 0.0052 # rolling resistance 
+    fr = 0.0052 # const, rolling resistance 
 
+    drag = 1/2*rho*Cd*A*v*v
+    friction = m*g*fr
     conv_factor = 2.77/10000 # Converting from N to kWh/km
     
-    return (1/2*rho*Cd*A*v*v + m*g*fr)*conv_factor
+    return (drag + friction)*conv_factor
 
 
 def calculate_kWh_travel(km):
@@ -119,10 +124,6 @@ def main():
     fig.show()
 
     grid['energy_usage'] = calculate_kWh_travel(grid['dist_km'])
-
-    
-
-
 
 if __name__ == '__main__':
     main()
