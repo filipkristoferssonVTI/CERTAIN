@@ -29,7 +29,7 @@ def main():
     data_folder = Path('data/output_new')
 
     events = pd.read_pickle(data_folder / 'events.pkl')
-    grid = pd.read_pickle(data_folder / 'grid_new.pkl')
+    grid = pd.read_pickle(data_folder / 'grid.pkl')
 
     events = events.drop_duplicates(subset='Ärende, årsnr')  # to not count the same event more than once.
 
