@@ -164,6 +164,8 @@ def run_simulation():
     area_C_MA_all = pd.read_pickle(data_folder / 'grid.pkl').set_index('rut_id').drop(columns='geometry')
     beta_MA_HA_all = pd.read_csv(data_folder / 'coefficients.csv', index_col=0)
 
+    # TODO: Need to handle the added MA limit
+
     area_C_MA_all = area_C_MA_all / (1000 * 1000)
     area_C_MA_all = area_C_MA_all.assign(intercept=1)
 
@@ -199,10 +201,10 @@ def run_simulation():
 
 def main():
     # run_simulation()
-    # run_simulation_test()
+    run_simulation_test()
     # plot_events()
 
-    create_qgis_data()
+    # create_qgis_data()
 
     DEBUG = 1
 
