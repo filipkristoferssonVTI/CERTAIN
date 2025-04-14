@@ -25,7 +25,38 @@ def create_pdf_from_folder(folder_name, save_path):
     pdf.output(save_path)
 
 
-def plot_events(events, output_path):
+def create_qgis_data():
+    data_folder = Path('data/output_new')
+    events = pd.read_csv(data_folder / 'estimated_simulated_events.csv', dtype={'rut_id': str})
+    grid = pd.read_pickle(data_folder / 'grid.pkl')
+
+    HA = ['Hjärtstopp', 'Brand eller brandtillbud i byggnad', 'Brand eller brandtillbud i skog eller mark',
+          'Drunkning eller drunkningstillbud']
+
+    grid = grid[['geometry', 'rut_id']]
+
+    events_real = events.loc[events['N_HA_C_real'] != 0]
+    events_simu = events.loc[events['N_HA_C'] != 0]
+
+    events_real = grid.merge(events_real, how='left', on='rut_id')
+    events_simu = grid.merge(events_simu, how='left', on='rut_id')
+
+    events_real = events_real[['rut_id', 'geometry', 'N_HA_C_real', 'Händelse, typ']]
+    events_simu = events_simu[['rut_id', 'geometry', 'N_HA_C', 'Händelse, typ']]
+
+    for ha in HA:
+        events_real_ha = events_real.loc[events_real['Händelse, typ'] == ha]
+        events_simu_ha = events_simu.loc[events_simu['Händelse, typ'] == ha]
+
+        events_real_ha.to_file(data_folder / 'plots' / f'{ha}_real.gpkg', driver='GPKG')
+        events_simu_ha.to_file(data_folder / 'plots' / f'{ha}_simu.gpkg', driver='GPKG')
+
+
+def plot_events():
+    data_folder = Path('data/output_new')
+    events = pd.read_csv(data_folder / 'estimated_simulated_events.csv')
+    output_path = data_folder / 'plots' / 'event_plots.pdf'
+
     with tempfile.TemporaryDirectory() as temp_dir:
         for i, event_type in enumerate(events['Händelse, typ'].unique()):
             fig = go.Figure()
@@ -93,6 +124,40 @@ def realize(estimated_simulated_events):
     return pd.DataFrame(HA_realization).sort_values(by='start_time')
 
 
+def run_simulation_test():
+    data_folder = Path('data/output_new')
+
+    area_C_MA_all = pd.read_pickle(data_folder / 'grid.pkl').set_index('rut_id').drop(columns='geometry')
+    beta_MA_HA_all = pd.read_csv(data_folder / 'coefficients.csv', index_col=0)
+
+    # Create a separate cell for each MA that contains only that specific MA
+    identity_matrix = np.eye(len(area_C_MA_all.columns), dtype=int)
+    area_C_MA_all = pd.DataFrame(identity_matrix, columns=area_C_MA_all.columns, index=area_C_MA_all.columns)
+
+    area_C_MA_all = area_C_MA_all.assign(intercept=1)
+
+    assert list(area_C_MA_all.columns) == list(beta_MA_HA_all.columns), 'Datasets needs to have the same MA cols.'
+
+    estimated_simulated_events = []
+
+    # Test for a single event type
+    beta_MA_HA_all = beta_MA_HA_all.loc[['Hjärtstopp']]
+
+    for C, area_C_MA in area_C_MA_all.iterrows():
+        for HA, beta_MA_HA in beta_MA_HA_all.iterrows():
+            lambda_HA_C = np.exp(area_C_MA.values @ beta_MA_HA.values)
+            N_HA_C = poisson.rvs(lambda_HA_C)
+
+            estimated_simulated_events.append({
+                'rut_id': C,
+                'Händelse, typ': HA,  # type of event
+                'lambda_HA_C': lambda_HA_C,  # estimated nr of events
+                'N_HA_C': N_HA_C  # simulated nr of events
+            })
+
+    pd.DataFrame(estimated_simulated_events).to_csv(data_folder / 'estimated_simulated_events_test.csv')
+
+
 def run_simulation():
     data_folder = Path('data/output_new')
 
@@ -134,11 +199,12 @@ def run_simulation():
 
 def main():
     # run_simulation()
+    # run_simulation_test()
+    # plot_events()
 
-    data_folder = Path('data/output_new')
-    events = pd.read_csv(data_folder / 'estimated_simulated_events.csv')
+    create_qgis_data()
 
-    plot_events(events, data_folder / 'event_plots.pdf')
+    DEBUG = 1
 
 
 if __name__ == '__main__':
