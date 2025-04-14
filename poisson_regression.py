@@ -47,8 +47,9 @@ def main():
         g = grid.merge(event_count, how='left', on='rut_id').fillna(0)
         y = g['Händelse, typ'].values
 
-        # An intercept columns is added with ones
         design_matrix = g[design_matrix_cols].values
+        design_matrix = np.maximum(design_matrix, 1000)  # setting a lower limit for the values in the design matrix
+        # An intercept columns is added with ones
         design_matrix = np.column_stack((design_matrix / 1e6, np.ones(design_matrix.shape[0])))
 
         n_samples, n_features = design_matrix.shape
