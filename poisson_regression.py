@@ -35,6 +35,11 @@ def main():
 
     design_matrix_cols = [col for col in grid.columns if col not in ['rut_id', 'geometry']]
 
+    area_threshold = 1e6
+    below_threshold = [col for col in design_matrix_cols if grid[col].sum() < area_threshold]
+    print(f"Columns with sum less than {area_threshold}: {below_threshold}, these are dropped.")
+    design_matrix_cols = [col for col in design_matrix_cols if col not in below_threshold]
+
     coeffs = {}
 
     for event_type in events['Händelse, typ'].dropna().unique():
@@ -48,7 +53,6 @@ def main():
         y = g['Händelse, typ'].values
 
         design_matrix = g[design_matrix_cols].values
-        design_matrix = np.maximum(design_matrix, 1000)  # setting a lower limit for the values in the design matrix
         # An intercept columns is added with ones
         design_matrix = np.column_stack((design_matrix / 1e6, np.ones(design_matrix.shape[0])))
 

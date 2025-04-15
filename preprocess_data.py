@@ -101,7 +101,7 @@ def main():
     data = clean_data(data)
     data = assign_geometry(data, x_col='Geo, ost', y_col='Geo, nord', crs='EPSG:3006')
 
-    data = gpd.sjoin(data, grid[['geometry', 'rut_id']], how="left", predicate="within")
+    data = gpd.sjoin(data, grid[['geometry', 'rut_id']], predicate="within")
 
     grid.to_pickle(data_folder / 'output_new' / 'grid.pkl')
     data.to_pickle(data_folder / 'output_new' / 'events.pkl')

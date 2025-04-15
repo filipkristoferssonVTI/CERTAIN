@@ -1,4 +1,5 @@
 import os
+import random
 import tempfile
 from pathlib import Path
 
@@ -130,11 +131,13 @@ def run_simulation_test():
     area_C_MA_all = pd.read_pickle(data_folder / 'grid.pkl').set_index('rut_id').drop(columns='geometry')
     beta_MA_HA_all = pd.read_csv(data_folder / 'coefficients.csv', index_col=0)
 
-    # Create a separate cell for each MA that contains only that specific MA
-    identity_matrix = np.eye(len(area_C_MA_all.columns), dtype=int)
-    area_C_MA_all = pd.DataFrame(identity_matrix, columns=area_C_MA_all.columns, index=area_C_MA_all.columns)
-
     area_C_MA_all = area_C_MA_all.assign(intercept=1)
+    area_C_MA_all = area_C_MA_all[[col for col in beta_MA_HA_all.columns]]
+
+    # Create a separate cell for each MA that contains only that specific MA
+    area_C_MA_all = pd.DataFrame(np.eye(len(area_C_MA_all.columns), dtype=int),
+                                 columns=area_C_MA_all.columns,
+                                 index=area_C_MA_all.columns).assign(intercept=1)
 
     assert list(area_C_MA_all.columns) == list(beta_MA_HA_all.columns), 'Datasets needs to have the same MA cols.'
 
@@ -164,10 +167,9 @@ def run_simulation():
     area_C_MA_all = pd.read_pickle(data_folder / 'grid.pkl').set_index('rut_id').drop(columns='geometry')
     beta_MA_HA_all = pd.read_csv(data_folder / 'coefficients.csv', index_col=0)
 
-    # TODO: Need to handle the added MA limit
-
     area_C_MA_all = area_C_MA_all / (1000 * 1000)
     area_C_MA_all = area_C_MA_all.assign(intercept=1)
+    area_C_MA_all = area_C_MA_all[[col for col in beta_MA_HA_all.columns]]
 
     assert list(area_C_MA_all.columns) == list(beta_MA_HA_all.columns), 'Datasets needs to have the same MA cols.'
 
@@ -199,13 +201,73 @@ def run_simulation():
     events.to_csv(data_folder / 'estimated_simulated_events.csv')
 
 
+def get_task_force():
+    data_folder = Path('data/output_new')
+    events = pd.read_pickle(data_folder / 'events.pkl')
+
+    task_force = TaskForce(data_folder / 'events.pkl')
+
+    # HA = 'Hjärtstopp'
+    # task_force = events[events['Händelse, typ'] == HA].groupby('Ärende, årsnr')['veh_type'].apply(list)
+
+    # random_row = task_force.sample(1).iloc[0]
+    DEBUG = 1
+
+
+class TaskForce:
+
+    def __init__(self, pkl_path):
+        self.events = pd.read_pickle(pkl_path)
+        self.task_forces = self._create_task_forces()
+
+    def _create_task_forces(self):
+        task_force_dict = {}
+        for event_type, group in self.events.groupby('Händelse, typ'):
+            grouped = group.groupby('Ärende, årsnr')['veh_type'].apply(lambda x: set(x))
+            task_force_dict[event_type] = list(grouped.values)
+        return task_force_dict
+
+    def get_task_forces(self, event_type):
+        return self.task_forces[event_type]
+
+    def get_task_force_sample(self, event_type, sample_size=1):
+        return random.sample(self.get_task_forces(event_type), sample_size)
+
+
+class ODMatrix:
+    def __init__(self, csv_path):
+        self.od = pd.read_csv(csv_path, dtype={'destination_id': str}).dropna(subset='total_cost')
+        self.closest_stations = self._create_closest_stations()
+
+    def _create_closest_stations(self):
+        return self.od.loc[self.od.groupby('destination_id')['total_cost'].idxmin()].set_index('destination_id')
+
+    def get_closest_station(self, rut_id):
+        return self.closest_stations.loc[rut_id]
+
+
+def get_station():
+    data_folder = Path('data')
+    events = pd.read_csv(data_folder / 'output_new' / 'estimated_simulated_events.csv', dtype={'rut_id': str})
+    od = ODMatrix(data_folder / 'od_matrix.csv')
+
+    events = events.loc[events['N_HA_C'] != 0]
+
+    single_event = events.iloc[0]
+
+    closest_station = od.get_closest_station(single_event['rut_id'])
+
+    DEBUG = 1
+
+
 def main():
     # run_simulation()
-    run_simulation_test()
+    # run_simulation_test()
     # plot_events()
-
     # create_qgis_data()
+    get_task_force()
 
+    # get_station()
     DEBUG = 1
 
 
