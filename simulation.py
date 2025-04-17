@@ -143,7 +143,7 @@ def run_simulation_test():
 
     estimated_simulated_events = []
 
-    # Test for a single event type
+    # Test for a single event type TODO: Run and get results for additional event types
     beta_MA_HA_all = beta_MA_HA_all.loc[['Hjärtstopp']]
 
     for C, area_C_MA in area_C_MA_all.iterrows():
@@ -201,19 +201,6 @@ def run_simulation():
     events.to_csv(data_folder / 'estimated_simulated_events.csv')
 
 
-def get_task_force():
-    data_folder = Path('data/output_new')
-    events = pd.read_pickle(data_folder / 'events.pkl')
-
-    task_force = TaskForce(data_folder / 'events.pkl')
-
-    # HA = 'Hjärtstopp'
-    # task_force = events[events['Händelse, typ'] == HA].groupby('Ärende, årsnr')['veh_type'].apply(list)
-
-    # random_row = task_force.sample(1).iloc[0]
-    DEBUG = 1
-
-
 class TaskForce:
 
     def __init__(self, pkl_path):
@@ -222,9 +209,21 @@ class TaskForce:
 
     def _create_task_forces(self):
         task_force_dict = {}
-        for event_type, group in self.events.groupby('Händelse, typ'):
-            grouped = group.groupby('Ärende, årsnr')['veh_type'].apply(lambda x: set(x))
-            task_force_dict[event_type] = list(grouped.values)
+        for event_type, event_type_group in self.events.groupby('Händelse, typ'):
+            task_forces = []
+            for _, event_group in event_type_group.groupby('Ärende, årsnr'):
+                # TODO: Which time aspect should we use?
+                #  ”Resurs, tid klar” är när resursen är är klar på skadeplatsen
+                #  ”Resurs, tid avslut” är när resursen är helt klar med ärendet, är återställd och klar för nya larm
+                #  ”Resurs, tid framme”
+                #  "Resurs, körtid (min)"
+                # TODO: Do we want a time value for each vehicle (then store as lists of dicts of type and tt?),
+                #  or for the entire task force?
+                task_forces.append({
+                    'veh_type': list(event_group['veh_type']),
+                    'travel_time': list(event_group['Resurs, körtid (min)']),  # TODO: Handle NA?
+                })
+            task_force_dict[event_type] = task_forces
         return task_force_dict
 
     def get_task_forces(self, event_type):
@@ -236,6 +235,7 @@ class TaskForce:
 
 class ODMatrix:
     def __init__(self, csv_path):
+        # TODO: Use: process_od_matrix?
         self.od = pd.read_csv(csv_path, dtype={'destination_id': str}).dropna(subset='total_cost')
         self.closest_stations = self._create_closest_stations()
 
@@ -246,15 +246,17 @@ class ODMatrix:
         return self.closest_stations.loc[rut_id]
 
 
-def get_station():
+def get_task_force_station():
     data_folder = Path('data')
-    events = pd.read_csv(data_folder / 'output_new' / 'estimated_simulated_events.csv', dtype={'rut_id': str})
+    simu_events = pd.read_csv(data_folder / 'output_new' / 'estimated_simulated_events.csv', dtype={'rut_id': str})
+
     od = ODMatrix(data_folder / 'od_matrix.csv')
+    task_force = TaskForce(data_folder / 'output_new' / 'events.pkl')
 
-    events = events.loc[events['N_HA_C'] != 0]
+    simu_events = simu_events.loc[simu_events['N_HA_C'] != 0]
+    single_event = simu_events.iloc[0]
 
-    single_event = events.iloc[0]
-
+    sample_task_force = task_force.get_task_force_sample(single_event['Händelse, typ'])
     closest_station = od.get_closest_station(single_event['rut_id'])
 
     DEBUG = 1
@@ -265,9 +267,8 @@ def main():
     # run_simulation_test()
     # plot_events()
     # create_qgis_data()
-    get_task_force()
 
-    # get_station()
+    get_task_force_station()
     DEBUG = 1
 
 
