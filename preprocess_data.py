@@ -103,8 +103,8 @@ def main():
 
     data = gpd.sjoin(data, grid[['geometry', 'rut_id']], predicate="within")
 
-    grid.to_pickle(data_folder / 'output_new' / 'grid.pkl')
-    data.to_pickle(data_folder / 'output_new' / 'events.pkl')
+    grid.to_pickle(data_folder / 'output' / 'grid.pkl')
+    data.to_pickle(data_folder / 'output' / 'processed_events.pkl')
 
 
 if __name__ == '__main__':

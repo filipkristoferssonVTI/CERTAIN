@@ -1,275 +1,347 @@
-import os
 import random
-import tempfile
+from abc import abstractmethod, ABC
+from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-from fpdf import fpdf
 from scipy.stats import poisson
 
 
-def create_pdf_from_folder(folder_name, save_path):
-    pdf = fpdf.FPDF()
-    image_files = sorted([f for f in os.listdir(folder_name) if f.endswith(".png")])
+class ResponseUnit(ABC):
+    @abstractmethod
+    def get_veh_types(self) -> list[str]:
+        pass
 
-    if not image_files:
-        print("No PNG images found in the folder.")
-        return
-
-    for image in image_files:
-        image_path = os.path.join(folder_name, image)
-        pdf.add_page(orientation='landscape')
-        pdf.image(image_path)
-
-    pdf.output(save_path)
+    @abstractmethod
+    def get_dur(self) -> float:
+        pass
 
 
-def create_qgis_data():
-    data_folder = Path('data/output_new')
-    events = pd.read_csv(data_folder / 'estimated_simulated_events.csv', dtype={'rut_id': str})
-    grid = pd.read_pickle(data_folder / 'grid.pkl')
+class ResponseUnitImpl(ResponseUnit):
 
-    HA = ['Hjärtstopp', 'Brand eller brandtillbud i byggnad', 'Brand eller brandtillbud i skog eller mark',
-          'Drunkning eller drunkningstillbud']
+    def __init__(self, vehicles: list[dict]):
+        self._vehicles = vehicles
 
-    grid = grid[['geometry', 'rut_id']]
+    def get_veh_types(self):
+        return [veh['veh_type'] for veh in self._vehicles]
 
-    events_real = events.loc[events['N_HA_C_real'] != 0]
-    events_simu = events.loc[events['N_HA_C'] != 0]
-
-    events_real = grid.merge(events_real, how='left', on='rut_id')
-    events_simu = grid.merge(events_simu, how='left', on='rut_id')
-
-    events_real = events_real[['rut_id', 'geometry', 'N_HA_C_real', 'Händelse, typ']]
-    events_simu = events_simu[['rut_id', 'geometry', 'N_HA_C', 'Händelse, typ']]
-
-    for ha in HA:
-        events_real_ha = events_real.loc[events_real['Händelse, typ'] == ha]
-        events_simu_ha = events_simu.loc[events_simu['Händelse, typ'] == ha]
-
-        events_real_ha.to_file(data_folder / 'plots' / f'{ha}_real.gpkg', driver='GPKG')
-        events_simu_ha.to_file(data_folder / 'plots' / f'{ha}_simu.gpkg', driver='GPKG')
+    def get_dur(self):
+        # TODO: Handle NA?
+        return max([veh['dur'] for veh in self._vehicles])
 
 
-def plot_events():
-    data_folder = Path('data/output_new')
-    events = pd.read_csv(data_folder / 'estimated_simulated_events.csv')
-    output_path = data_folder / 'plots' / 'event_plots.pdf'
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        for i, event_type in enumerate(events['Händelse, typ'].unique()):
-            fig = go.Figure()
-
-            e = events[events['Händelse, typ'] == event_type]
-
-            fig.add_trace(
-                go.Scatter(
-                    y=e['N_HA_C'],
-                    x=e['N_HA_C_real'],
-                    mode='markers',
-                    marker=dict(color='red', size=7),
-                    name=f'Real (sum={round(sum(e["N_HA_C_real"]))}) vs '
-                         f'Simulated (sum={round(sum(e["N_HA_C"]))})'
-                )
-            )
-
-            fig.add_trace(
-                go.Scatter(
-                    y=e['lambda_HA_C'],
-                    x=e['N_HA_C_real'],
-                    mode='markers',
-                    marker=dict(color='blue', size=5),
-                    name=f'Real (sum={round(sum(e["N_HA_C_real"]))}) vs '
-                         f'Estimated (sum={round(sum(e["lambda_HA_C"]), 1)})'
-                )
-            )
-
-            fig.update_layout(
-                title_text=f"Occurrences Per Cell Real vs Simulated/Estimated - {event_type}",
-                title_font=dict(size=14),
-                showlegend=True,
-                template="plotly_white",
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1,
-                )
-            )
-
-            fig.update_yaxes(title_text="Simulated/Estimated")
-            fig.update_xaxes(title_text="Real")
-
-            fig.write_image(os.path.join(temp_dir, f'{event_type}.png'), engine='orca')
-
-        create_pdf_from_folder(temp_dir, output_path)
+@dataclass
+class Vehicle:
+    id: str
+    station: str
+    type: str
+    battery_level: float
+    next_avail_time: int = 0
 
 
-def realize(estimated_simulated_events):
-    T_start_s = 0
-    T_end_s = 3 * 365 * 24 * 60 * 60  # Approximate 3 years in seconds
+class EventType(ABC):
 
-    HA_realization = []
+    @property
+    @abstractmethod
+    def type(self) -> str:
+        pass
 
-    for _, row in estimated_simulated_events.iterrows():
+    @abstractmethod
+    def sample_response_unit(self) -> ResponseUnit:
+        pass
 
-        C = row['rut_id']
-        HA = row['Händelse, typ']
-        N_HA_C = row['N_HA_C']
-
-        HA_start = np.random.default_rng().integers(T_start_s, T_end_s, size=N_HA_C)
-        for start in HA_start:
-            HA_realization.append({'rut_id': C, 'Händelse, typ': HA, 'start_time': start})
-
-    return pd.DataFrame(HA_realization).sort_values(by='start_time')
+    @abstractmethod
+    def sample_start_time(self, T_start: int, T_end: int) -> int:
+        pass
 
 
-def run_simulation_test():
-    data_folder = Path('data/output_new')
+class EventTypeImpl(EventType):
 
-    area_C_MA_all = pd.read_pickle(data_folder / 'grid.pkl').set_index('rut_id').drop(columns='geometry')
-    beta_MA_HA_all = pd.read_csv(data_folder / 'coefficients.csv', index_col=0)
+    def __init__(self, event_type: str, response_units: list[ResponseUnit]):
+        self.event_type = event_type
+        self.response_units = response_units
 
-    area_C_MA_all = area_C_MA_all.assign(intercept=1)
-    area_C_MA_all = area_C_MA_all[[col for col in beta_MA_HA_all.columns]]
+    @property
+    def type(self):
+        return self.event_type
 
-    # Create a separate cell for each MA that contains only that specific MA
-    area_C_MA_all = pd.DataFrame(np.eye(len(area_C_MA_all.columns), dtype=int),
-                                 columns=area_C_MA_all.columns,
-                                 index=area_C_MA_all.columns).assign(intercept=1)
+    def sample_response_unit(self):
+        return random.choice(self.response_units)
 
-    assert list(area_C_MA_all.columns) == list(beta_MA_HA_all.columns), 'Datasets needs to have the same MA cols.'
-
-    estimated_simulated_events = []
-
-    # Test for a single event type TODO: Run and get results for additional event types
-    beta_MA_HA_all = beta_MA_HA_all.loc[['Hjärtstopp']]
-
-    for C, area_C_MA in area_C_MA_all.iterrows():
-        for HA, beta_MA_HA in beta_MA_HA_all.iterrows():
-            lambda_HA_C = np.exp(area_C_MA.values @ beta_MA_HA.values)
-            N_HA_C = poisson.rvs(lambda_HA_C)
-
-            estimated_simulated_events.append({
-                'rut_id': C,
-                'Händelse, typ': HA,  # type of event
-                'lambda_HA_C': lambda_HA_C,  # estimated nr of events
-                'N_HA_C': N_HA_C  # simulated nr of events
-            })
-
-    pd.DataFrame(estimated_simulated_events).to_csv(data_folder / 'estimated_simulated_events_test.csv')
+    def sample_start_time(self, T_start, T_end):
+        return random.randint(T_start, T_end)
 
 
-def run_simulation():
-    data_folder = Path('data/output_new')
+class Mission:
 
-    area_C_MA_all = pd.read_pickle(data_folder / 'grid.pkl').set_index('rut_id').drop(columns='geometry')
-    beta_MA_HA_all = pd.read_csv(data_folder / 'coefficients.csv', index_col=0)
+    def __init__(self, event_type: EventType, cell_id: str):
+        self.event_type = event_type
+        self.cell_id = cell_id
+        self._response_unit = None
+        self._start_time = None
 
-    area_C_MA_all = area_C_MA_all / (1000 * 1000)
-    area_C_MA_all = area_C_MA_all.assign(intercept=1)
-    area_C_MA_all = area_C_MA_all[[col for col in beta_MA_HA_all.columns]]
+    def set_response_unit(self, response_unit: ResponseUnit):
+        if self._response_unit is not None:
+            raise ValueError("Response unit is already set!")
+        self._response_unit = response_unit
 
-    assert list(area_C_MA_all.columns) == list(beta_MA_HA_all.columns), 'Datasets needs to have the same MA cols.'
+    @property
+    def response_unit(self):
+        return self._response_unit
 
-    estimated_simulated_events = []
+    def set_start_time(self, start_time: int):
+        if self._start_time is not None:
+            raise ValueError("Start time is already set!")
+        self._start_time = start_time
 
-    for C, area_C_MA in area_C_MA_all.iterrows():
-        for HA, beta_MA_HA in beta_MA_HA_all.iterrows():
-            lambda_HA_C = np.exp(area_C_MA.values @ beta_MA_HA.values)
-            N_HA_C = poisson.rvs(lambda_HA_C)
-
-            estimated_simulated_events.append({
-                'rut_id': C,
-                'Händelse, typ': HA,  # type of event
-                'lambda_HA_C': lambda_HA_C,  # estimated nr of events
-                'N_HA_C': N_HA_C  # simulated nr of events
-            })
-
-    events = pd.DataFrame(estimated_simulated_events)
-
-    real_events = (pd.read_pickle(data_folder / 'events.pkl')[['Ärende, årsnr', 'rut_id', 'Händelse, typ']]
-                   .drop_duplicates(subset='Ärende, årsnr')
-                   .drop(columns='Ärende, årsnr')
-                   .groupby(['rut_id', 'Händelse, typ'])
-                   .size()
-                   .reset_index(name='N_HA_C_real'))
-
-    events = events.merge(real_events, on=['rut_id', 'Händelse, typ'], how='outer').fillna(0)
-
-    events.to_csv(data_folder / 'estimated_simulated_events.csv')
+    @property
+    def start_time(self):
+        return self._start_time
 
 
-class TaskForce:
+class MissionContainer(ABC):
 
-    def __init__(self, pkl_path):
-        self.events = pd.read_pickle(pkl_path)
-        self.task_forces = self._create_task_forces()
+    @abstractmethod
+    def add_response_unit(self):
+        pass
 
-    def _create_task_forces(self):
-        task_force_dict = {}
-        for event_type, event_type_group in self.events.groupby('Händelse, typ'):
-            task_forces = []
-            for _, event_group in event_type_group.groupby('Ärende, årsnr'):
-                # TODO: Which time aspect should we use?
-                #  ”Resurs, tid klar” är när resursen är är klar på skadeplatsen
-                #  ”Resurs, tid avslut” är när resursen är helt klar med ärendet, är återställd och klar för nya larm
-                #  ”Resurs, tid framme”
-                #  "Resurs, körtid (min)"
-                # TODO: Do we want a time value for each vehicle (then store as lists of dicts of type and tt?),
-                #  or for the entire task force?
-                task_forces.append({
-                    'veh_type': list(event_group['veh_type']),
-                    'travel_time': list(event_group['Resurs, körtid (min)']),  # TODO: Handle NA?
-                })
-            task_force_dict[event_type] = task_forces
-        return task_force_dict
+    @abstractmethod
+    def add_start_time(self, T_start: int, T_end: int):
+        pass
 
-    def get_task_forces(self, event_type):
-        return self.task_forces[event_type]
-
-    def get_task_force_sample(self, event_type, sample_size=1):
-        return random.sample(self.get_task_forces(event_type), sample_size)
+    @abstractmethod
+    def sort_by_start_time(self):
+        pass
 
 
-class ODMatrix:
-    def __init__(self, csv_path):
-        # TODO: Use: process_od_matrix?
-        self.od = pd.read_csv(csv_path, dtype={'destination_id': str}).dropna(subset='total_cost')
+class MissionContainerImpl(MissionContainer):
+    def __init__(self, missions: list[Mission]):
+        self.missions = missions
+
+    def add_response_unit(self):
+        for mission in self.missions:
+            mission.set_response_unit(mission.event_type.sample_response_unit())
+
+    def add_start_time(self, T_start, T_end):
+        for mission in self.missions:
+            mission.set_start_time(mission.event_type.sample_start_time(T_start, T_end))
+        self.sort_by_start_time()
+
+    def sort_by_start_time(self):
+        self.missions.sort(key=lambda m: m.start_time)
+
+
+class TravelTimeModel(ABC):
+    @abstractmethod
+    def get_travel_time(self, mission: Mission) -> int:
+        pass
+
+    @abstractmethod
+    def get_closest_station(self, mission: Mission) -> str:
+        pass
+
+
+class ODMatrix(ABC):
+
+    @abstractmethod
+    def get_closest_station_id(self, cell_id: str) -> str:
+        pass
+
+    @abstractmethod
+    def get_distance(self, station_id: str, cell_id: str) -> float:
+        pass
+
+
+class ODMatrixImpl(ODMatrix):
+    def __init__(self, od_matrix: pd.DataFrame):
+        self.od = od_matrix
         self.closest_stations = self._create_closest_stations()
 
     def _create_closest_stations(self):
-        return self.od.loc[self.od.groupby('destination_id')['total_cost'].idxmin()].set_index('destination_id')
+        return self.od.loc[self.od.groupby('cell_id')['dist_m'].idxmin()].set_index('cell_id')
 
-    def get_closest_station(self, rut_id):
-        return self.closest_stations.loc[rut_id]
+    def get_closest_station_id(self, cell_id):
+        return self.closest_stations.loc[cell_id, 'station_id']
+
+    def get_distance(self, station_id, cell_id):
+        dist_m = self.od.loc[(self.od['station_id'] == station_id) & (self.od['cell_id'] == cell_id), 'dist_m']
+        assert len(dist_m) == 1, 'A unique distance for the given station/cell combination needs to be found.'
+        return dist_m.iloc[0]
 
 
-def get_task_force_station():
-    data_folder = Path('data')
-    simu_events = pd.read_csv(data_folder / 'output_new' / 'estimated_simulated_events.csv', dtype={'rut_id': str})
+class EnergyTable(ABC):
+    @abstractmethod
+    def get_battery_cap(self, veh_type: str) -> float:
+        pass
 
-    od = ODMatrix(data_folder / 'od_matrix.csv')
-    task_force = TaskForce(data_folder / 'output_new' / 'events.pkl')
 
-    simu_events = simu_events.loc[simu_events['N_HA_C'] != 0]
-    single_event = simu_events.iloc[0]
+class EnergyTableImpl(EnergyTable):
 
-    sample_task_force = task_force.get_task_force_sample(single_event['Händelse, typ'])
-    closest_station = od.get_closest_station(single_event['rut_id'])
+    def __init__(self, energy_table: pd.DataFrame):
+        self.energy_table = energy_table
 
-    DEBUG = 1
+    def get_battery_cap(self, veh_type: str) -> float:
+        if veh_type not in self.energy_table.index:
+            return 300  # TODO: Handle missing vehicle types
+        return self.energy_table.loc[veh_type, 'Batterikapacitet (kWh, motor)']
+
+
+class TravelTimeModelImpl(TravelTimeModel):
+
+    def __init__(self, od_matrix: ODMatrix):
+        self.od = od_matrix
+
+    def get_travel_time(self, mission):
+        pass
+
+    def get_closest_station(self, mission):
+        return self.od.get_closest_station_id(mission.cell_id)
+
+
+class VehicleContainer(ABC):
+
+    @abstractmethod
+    def get_avail_vehicles(self, mission: Mission, travel_time_model: TravelTimeModel) -> list[Vehicle]:
+        pass
+
+
+class VehicleContainerImpl(VehicleContainer):
+
+    def __init__(self, vehicles: list[Vehicle]):
+        self.vehicles = self.structure_vehicles(vehicles)
+
+    @staticmethod
+    def structure_vehicles(vehicles: list[Vehicle]) -> dict:
+        vehicles_structured = defaultdict(list)
+        for v in vehicles:
+            vehicles_structured[(v.station, v.type)].append(v)
+        return vehicles_structured
+
+    def get_avail_vehicles(self, mission, travel_time_model):
+        # TODO: If no vehicle of a type is avail?
+        veh_types = mission.response_unit.get_veh_types()
+        closest_station = travel_time_model.get_closest_station(mission)
+        avail_vehicles = []
+        for veh_type in veh_types:
+            vehicles = self.vehicles[(closest_station, veh_type)]
+            for vehicle in vehicles:
+                if vehicle.next_avail_time < mission.start_time:
+                    avail_vehicles.append(vehicle)
+                    break
+        return avail_vehicles
+
+
+class RegrModel(ABC):
+    @abstractmethod
+    def gen_missions(self, event_type: EventType) -> list[Mission]:
+        """Generates a number of missions of a given event type."""
+        pass
+
+
+class RegrModelImpl(RegrModel):
+    def __init__(self, lambda_vals: pd.DataFrame):
+        self.lambda_vals = lambda_vals
+
+    def gen_missions(self, event_type):
+        filtered_lambda_vals = self.lambda_vals.loc[self.lambda_vals['event_type'] == event_type.type].copy()
+        filtered_lambda_vals['occurrences'] = poisson.rvs(filtered_lambda_vals['lambda'])
+        filtered_lambda_vals = filtered_lambda_vals.loc[filtered_lambda_vals['occurrences'] != 0]
+        missions = []
+        for _, row in filtered_lambda_vals.iterrows():
+            missions.extend([
+                Mission(event_type=event_type, cell_id=row['cell_id'])
+                for _ in range(row['occurrences'])
+            ])
+        return missions
+
+
+def create_response_units(real_events: pd.DataFrame, event_type: str) -> list[ResponseUnit]:
+    event_type_group = real_events.loc[real_events['Händelse, typ'] == event_type].copy()
+    response_units = []
+    for _, event_group in event_type_group.groupby('Ärende, årsnr'):
+        response_units.append(ResponseUnitImpl(
+            vehicles=[{'veh_type': row['veh_type'],
+                       'dur': row['Resurs, tid klar'] - row['Resurs, tid framme']}
+                      for _, row in event_group.iterrows()]))
+    return response_units
+
+
+def create_vehicles(real_events: pd.DataFrame, energy_table: EnergyTable) -> VehicleContainer:
+    real_events = real_events.drop_duplicates(subset='Resurs, enhet').copy()
+    vehicles = []
+    for _, row in real_events.iterrows():
+        vehicles.append(Vehicle(
+            id=row['Resurs, enhet'][-4:],
+            station=row['Resurs, station'][-4:],
+            type=row['veh_type'],
+            battery_level=energy_table.get_battery_cap(row['veh_type'])
+        ))
+    return VehicleContainerImpl(vehicles)
+
+
+def process_od_matrix(data_path):
+    od_matrix = pd.read_csv(data_path, sep=',', skipfooter=1, engine='python', dtype={'destination_id': str})
+    od_matrix = od_matrix.rename(columns={'origin_id': 'fire_station',
+                                          'destination_id': 'cell_id',
+                                          'total_cost': 'dist_m'})
+    od_matrix = od_matrix.drop(['entry_cost', 'network_cost', 'exit_cost'], axis=1)
+
+    name_2_id = {
+        'Centrum': '1000',
+        'Kvillinge': '1200',
+        'Skärblacka': '1500',
+        'Östra Husby': '1600',
+        'Krokek': '1900',
+        'Kallerstad': '2200',
+        'Lambohov': '2000',
+        'Ulrika': '2500',
+        'Ljungsbro': '2700',
+        'Vikingstad': '2800',
+        'Bestorp': '2900',
+        'Söderköping': '3500',
+        'Östra Ryd': '3600',
+        'Bottna': '3600',
+        'Valdemarsvik': '7000',
+        'Åtvidaberg': '7500',
+    }
+
+    od_matrix['station_id'] = od_matrix['fire_station'].map(name_2_id)
+
+    od_matrix = od_matrix.dropna(subset='station_id')  # TODO: Handle missing stations
+    od_matrix = od_matrix.dropna(subset='dist_m')  # TODO: How do we handle cells not reachable?
+
+    return od_matrix
 
 
 def main():
-    # run_simulation()
-    # run_simulation_test()
-    # plot_events()
-    # create_qgis_data()
+    data_folder = Path('data')
 
-    get_task_force_station()
-    DEBUG = 1
+    real_event_data = pd.read_pickle(data_folder / 'output' / 'processed_events.pkl')
+    lambda_vals = pd.read_csv(data_folder / 'output' / 'lambda_vals.csv', dtype={'cell_id': str})
+    od_matrix = process_od_matrix(data_folder / 'od_matrix.csv')
+    energy_table = pd.read_excel(data_folder / 'Energianvändning_fordonskoder.xlsx')
+    energy_table.index = energy_table['Fordonskod'].str[-2:]
+
+    energy_table = EnergyTableImpl(energy_table)
+
+    travel_time_model = TravelTimeModelImpl(ODMatrixImpl(od_matrix))
+
+    event_type_str = 'Hjärtstopp'
+
+    vehicle_container = create_vehicles(real_event_data, energy_table)
+    response_units = create_response_units(real_event_data, event_type_str)
+
+    regr_model = RegrModelImpl(lambda_vals)
+    event_type = EventTypeImpl(event_type_str, response_units)
+
+    mission_container = MissionContainerImpl(regr_model.gen_missions(event_type))
+    mission_container.add_response_unit()
+    mission_container.add_start_time(T_start=0, T_end=3 * 365 * 24 * 60 * 60)
+
+    for mission in mission_container.missions:
+        avail_vehicles = vehicle_container.get_avail_vehicles(mission, travel_time_model)
+        DEBUG = 1
 
 
 if __name__ == '__main__':

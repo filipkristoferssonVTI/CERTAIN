@@ -25,10 +25,10 @@ def poisson_neg_log_likelihood(beta, X, y):
     return -np.sum(y * linear_pred - expected_counts)  # negative log-likelihood
 
 
-def main():
-    data_folder = Path('data/output_new')
+def generate_coefficients():
+    data_folder = Path('data/output')
 
-    events = pd.read_pickle(data_folder / 'events.pkl')
+    events = pd.read_pickle(data_folder / 'processed_events.pkl')
     grid = pd.read_pickle(data_folder / 'grid.pkl')
 
     events = events.drop_duplicates(subset='Ärende, årsnr')  # to not count the same event more than once.
@@ -76,6 +76,40 @@ def main():
                   columns=design_matrix_cols,
                   index=[event_type for event_type in coeffs.keys()])
      .to_csv(data_folder / 'coefficients.csv'))
+
+
+def generate_lambda_vals():
+    data_folder = Path('data/output')
+
+    area_C_MA_all = pd.read_pickle(data_folder / 'grid.pkl').set_index('rut_id').drop(columns='geometry')
+    beta_MA_HA_all = pd.read_csv(data_folder / 'coefficients.csv', index_col=0)
+
+    area_C_MA_all = area_C_MA_all / (1000 * 1000)
+    area_C_MA_all = area_C_MA_all.assign(intercept=1)
+    area_C_MA_all = area_C_MA_all[[col for col in beta_MA_HA_all.columns]]
+
+    assert list(area_C_MA_all.columns) == list(beta_MA_HA_all.columns), 'Datasets needs to have the same MA cols.'
+
+    lambda_vals = []
+
+    for C, area_C_MA in area_C_MA_all.iterrows():
+        for HA, beta_MA_HA in beta_MA_HA_all.iterrows():
+            lambda_HA_C = np.exp(area_C_MA.values @ beta_MA_HA.values)
+
+            lambda_vals.append({
+                'cell_id': C,
+                'event_type': HA,
+                'lambda': lambda_HA_C,  # estimated nr of events
+            })
+
+    lambda_vals = pd.DataFrame(lambda_vals)
+
+    lambda_vals.to_csv(data_folder / 'lambda_vals.csv', index=False)
+
+
+def main():
+    # generate_coefficients()
+    generate_lambda_vals()
 
 
 if __name__ == '__main__':
