@@ -1,7 +1,9 @@
+import math
 import random
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -37,7 +39,6 @@ class Vehicle:
     station: str
     type: str
     battery_level: float
-    max_speed: float = 33  # m/s
     next_avail_time: int = 0
 
 
@@ -84,12 +85,16 @@ class Mission:
         self.cell_id = cell_id
         self._response_unit = None
         self._start_time = None
+        self._opt_response_time = None
+        self._simu_response_time = None
 
     def __repr__(self):
         return (f"Mission(event_type={self.event_type!r}, "
                 f"cell_id={self.cell_id!r}, "
                 f"response_unit={self._response_unit!r}, "
-                f"start_time={self._start_time!r})")
+                f"start_time={self._start_time!r}, "
+                f"opt_response_time={self._opt_response_time!r}, "
+                f"simu_response_time={self._simu_response_time!r})")
 
     def set_response_unit(self, response_unit: ResponseUnit):
         if self._response_unit is not None:
@@ -109,8 +114,31 @@ class Mission:
     def start_time(self):
         return self._start_time
 
-    def __str__(self):
-        return
+    def set_opt_response_time(self, time: int):
+        if self._opt_response_time is not None:
+            raise ValueError("Optimal response time is already set!")
+        self._opt_response_time = time
+
+    @property
+    def opt_response_time(self):
+        return self._opt_response_time
+
+    def set_simu_response_time(self, time: int):
+        if self._simu_response_time is not None:
+            raise ValueError("Simulated response time is already set!")
+        self._simu_response_time = time
+
+    @property
+    def simu_response_time(self):
+        return self._simu_response_time
+
+    def to_dict(self):
+        return {'event_type': self.event_type,
+                'cell_id': self.cell_id,
+                'response_unit': self.response_unit,
+                'start_time': self.start_time,
+                'opt_response_time': self.opt_response_time,
+                'simu_response_time': self.simu_response_time}
 
 
 class MissionContainer(ABC):
@@ -125,6 +153,10 @@ class MissionContainer(ABC):
 
     @abstractmethod
     def sort_by_start_time(self):
+        pass
+
+    @abstractmethod
+    def save(self, output_file: Path):
         pass
 
 
@@ -144,8 +176,12 @@ class MissionContainerImpl(MissionContainer):
     def sort_by_start_time(self):
         self.missions.sort(key=lambda m: m.start_time)
 
+    def save(self, output_file):
+        pd.DataFrame([m.to_dict() for m in self.missions]).to_csv(output_file, index=False)
+
 
 class EnergyTable(ABC):
+    # TODO: Refactor (rename) as this also holds info on vehicle max speed
     @abstractmethod
     def get_battery_cap(self, veh_type: str) -> float:
         pass
@@ -156,6 +192,10 @@ class EnergyTable(ABC):
 
     @abstractmethod
     def get_charge_time(self, veh_type: str) -> int:
+        pass
+
+    @abstractmethod
+    def get_max_speed(self, veh_type: str) -> float:
         pass
 
 
@@ -173,6 +213,9 @@ class EnergyTableImpl(EnergyTable):
     def get_charge_time(self, veh_type):
         return self.energy_table.loc[veh_type, 'charge_time']
 
+    def get_max_speed(self, veh_type):
+        return self.energy_table.loc[veh_type, 'max_speed']
+
 
 class TravelTimeModel(ABC):
 
@@ -186,7 +229,7 @@ class TravelTimeModel(ABC):
         pass
 
     @abstractmethod
-    def get_travel_time(self, vehicle: Vehicle, station_id: str, cell_id: str) -> int:
+    def get_travel_time(self, max_speed: float, station_id: str, cell_id: str) -> int:
         pass
 
 
@@ -202,15 +245,16 @@ class TravelTimeModelImpl(TravelTimeModel):
     def get_sorted_stations(self, cell_id):
         return self.od.loc[cell_id, 'station_id'].tolist()
 
+    @lru_cache(maxsize=None)
     def get_distance(self, station_id, cell_id):
         distance = self.od.loc[(self.od.index == cell_id) & (self.od['station_id'] == station_id), 'dist_m']
-        assert len(distance) == 1, f'A unique distance for the given station/cell combination needs to be found.'
+        assert len(
+            distance) == 1, f'A unique distance for the given station/cell combination needs to be found.'
         return distance.squeeze()
 
-    def get_travel_time(self, vehicle, station_id, cell_id):
+    def get_travel_time(self, max_speed, station_id, cell_id):
         distance = self.get_distance(station_id, cell_id)
-        max_speed = vehicle.max_speed
-        return distance / max_speed
+        return math.ceil(distance / max_speed)
 
 
 class VehicleContainer(ABC):
@@ -220,8 +264,8 @@ class VehicleContainer(ABC):
         pass
 
     @abstractmethod
-    def simulate_movement(self, mission: Mission, vehicle: Vehicle, station_id: str, energy_table: EnergyTable,
-                          travel_time_model: TravelTimeModel, dur: int):
+    def simulate_movement(self, mission: Mission, vehicle: Vehicle, energy_table: EnergyTable,
+                          travel_time_model: TravelTimeModel, dur: int) -> int:
         pass
 
 
@@ -234,42 +278,67 @@ class VehicleContainerImpl(VehicleContainer):
     def _structure_vehicles(vehicles: list[Vehicle]) -> dict:
         vehicles_structured = defaultdict(list)
         for v in vehicles:
-            vehicles_structured[(v.type, v.station)].append(v)
+            vehicles_structured[v.type].append(v)
         return vehicles_structured
 
-    def get_avail_vehicle(self, veh_type: str, station_id: str, start_time: int):
-        avail_vehicle = None
-        min_time = float('inf')
-        for v in self.vehicles[(veh_type, station_id)]:
-            if v.next_avail_time < start_time and v.next_avail_time < min_time:
-                min_time = v.next_avail_time
-                avail_vehicle = v
-        return avail_vehicle
+    def get_vehicle(self, veh_type: str, cell_id: str, travel_time_model: TravelTimeModel, energy_table: EnergyTable):
+        max_speed = energy_table.get_max_speed(veh_type)
+        return min(self.vehicles[veh_type],
+                   key=lambda veh: veh.next_avail_time + travel_time_model.get_travel_time(max_speed,
+                                                                                           veh.station,
+                                                                                           cell_id))
+
+    def get_opt_arrival_time(self, veh_type: str, mission: Mission, travel_time_model: TravelTimeModel,
+                             energy_table: EnergyTable):
+        max_speed = energy_table.get_max_speed(veh_type)
+        cell_id = mission.cell_id
+
+        vehicle = min(self.vehicles[veh_type], key=lambda veh: travel_time_model.get_travel_time(max_speed,
+                                                                                                 veh.station,
+                                                                                                 cell_id))
+        tt = travel_time_model.get_travel_time(max_speed, vehicle.station, cell_id)
+        return mission.start_time + tt
 
     def simulate_mission(self, mission, travel_time_model, energy_table):
+        latest_arrival_opt = 0
+        latest_arrival_simu = 0
+
         for (veh_type, dur) in mission.response_unit.get_veh_types():
-            found_vehicle = False
-            station_ids = travel_time_model.get_sorted_stations(mission.cell_id)
-            for station_id in station_ids:
-                vehicle = self.get_avail_vehicle(veh_type, station_id, mission.start_time)
-                if vehicle:
-                    self.simulate_movement(mission, vehicle, station_id, energy_table, travel_time_model, dur)
-                    found_vehicle = True
-                    break
-            if not found_vehicle:
-                print(f"Warning: No available vehicle of type '{veh_type}' found for {repr(mission)}")
+            vehicle = self.get_vehicle(veh_type, mission.cell_id, travel_time_model, energy_table)
 
-    def simulate_movement(self, mission, vehicle, station_id, energy_table, travel_time_model, dur):
-        # TODO: Include energy usage at site
-        tt = travel_time_model.get_travel_time(vehicle, station_id, mission.cell_id)
-        distance = travel_time_model.get_distance(station_id, mission.cell_id)
-        energy_usage_travel = energy_table.get_energy_need(vehicle.type) * distance
+            arrival_time_opt = self.get_opt_arrival_time(veh_type, mission, travel_time_model, energy_table)
+            arrival_time_simu = self.simulate_movement(mission, vehicle, energy_table, travel_time_model, dur)
 
-        next_avail_time = vehicle.next_avail_time + dur + (tt * 2)
-        battery_level = vehicle.battery_level - (energy_usage_travel * 2)
+            if arrival_time_simu > latest_arrival_simu:
+                latest_arrival_simu = arrival_time_simu
 
-        vehicle.next_avail_time = next_avail_time
-        vehicle.battery_level = battery_level
+            if arrival_time_opt > latest_arrival_opt:
+                latest_arrival_opt = arrival_time_opt
+
+        mission.set_opt_response_time(latest_arrival_opt)
+        mission.set_simu_response_time(latest_arrival_simu)
+
+    def simulate_movement(self, mission, vehicle, energy_table, travel_time_model, dur):
+        # TODO: Include energy usage at site, use some default value?
+        # TODO: Include charge time? Right now treated as "normal vehicles"?
+
+        station_id = vehicle.station
+        cell_id = mission.cell_id
+        veh_type = vehicle.type
+
+        tt = travel_time_model.get_travel_time(energy_table.get_max_speed(veh_type), station_id, cell_id)
+        energy_usage = energy_table.get_energy_need(veh_type) * travel_time_model.get_distance(station_id, cell_id)
+
+        start_time = mission.start_time
+        if start_time < vehicle.next_avail_time:
+            start_time = vehicle.next_avail_time
+
+        arrival_time = start_time + tt
+
+        vehicle.next_avail_time = arrival_time + dur + tt
+        vehicle.battery_level = vehicle.battery_level - (energy_usage * 2)
+
+        return arrival_time
 
 
 class RegrModel(ABC):
@@ -307,7 +376,7 @@ def create_response_units(real_events: pd.DataFrame, event_type: str) -> list[Re
 
     # TODO: Get mean travel time for each vehicle type instead?
     mean_dur_df = real_events.dropna(subset=['Resurs, tid framme', 'Resurs, tid klar'])
-    mean_dur = (mean_dur_df['Resurs, tid klar'] - mean_dur_df['Resurs, tid framme']).dt.total_seconds().mean()
+    mean_dur = int((mean_dur_df['Resurs, tid klar'] - mean_dur_df['Resurs, tid framme']).dt.total_seconds().mean())
 
     event_type_group = real_events.loc[real_events['Händelse, typ'] == event_type].copy()
     response_units = []
@@ -380,10 +449,13 @@ def process_energy_table(energy_table: pd.DataFrame, veh_types: list[str]) -> pd
     energy_table['battery_cap'] = energy_table['Batterikapacitet (kWh, motor)']
     energy_table['energy_need'] = energy_table['Energibehov (kWh/km)'] / 1000
     energy_table['charge_time'] = energy_table['Laddningstid (h, motor)'] * 3600
+    energy_table['max_speed'] = 33  # m/s
+
     return energy_table[[
         'energy_need',
         'battery_cap',
         'charge_time',
+        'max_speed',
     ]]
 
 
@@ -392,34 +464,38 @@ def main():
 
     real_event_data = pd.read_pickle(path / 'output' / 'processed_events.pkl')
     lambda_vals = pd.read_csv(path / 'output' / 'lambda_vals.csv', dtype={'cell_id': str})
-    od = pd.read_csv(path / 'od_matrix.csv', sep=',', skipfooter=1, engine='python', dtype={'destination_id': str})
+    od_matrix = process_od_matrix(
+        pd.read_csv(path / 'od_matrix.csv', sep=',', skipfooter=1, engine='python', dtype={'destination_id': str}))
     energy_table = pd.read_excel(path / 'Energianvändning_fordonskoder.xlsx')
 
-    od_matrix = process_od_matrix(od)
+    # TODO: Remove once the stations are fixed
+    real_event_data = real_event_data[
+        real_event_data['Resurs, station'].str[-4:].isin(od_matrix['station_id'].unique())]
+
     energy_table = process_energy_table(energy_table, real_event_data['veh_type'].unique().tolist())
 
     energy_table = EnergyTableImpl(energy_table)
     travel_time_model = TravelTimeModelImpl(od_matrix)
-
-    event_type_str = 'Hjärtstopp'
-
-    vehicle_container = create_vehicles(real_event_data, energy_table)
-    response_units = create_response_units(real_event_data, event_type_str)
-
     regr_model = RegrModelImpl(lambda_vals)
-    event_type = EventTypeImpl(event_type_str, response_units)
 
-    # TODO: Generate missions for each event type
-    missions = regr_model.gen_missions(event_type)
+    missions = []
+    for event_type_str in lambda_vals['event_type'].unique():
+        response_units = create_response_units(real_event_data, event_type_str)
+        event_type = EventTypeImpl(event_type_str, response_units)
+        missions.extend(regr_model.gen_missions(event_type))
 
     mission_container = MissionContainerImpl(missions)
     mission_container.add_response_unit()
     mission_container.add_start_time(T_start=0, T_end=3 * 365 * 24 * 60 * 60)
 
+    vehicle_container = create_vehicles(real_event_data, energy_table)
+
     for mission in mission_container.missions:
         # TODO: Remove this once unreachable cells are handled
         if mission.cell_id in travel_time_model.od.index:
             vehicle_container.simulate_mission(mission, travel_time_model, energy_table)
+
+    mission_container.save(path / 'output' / 'missions_test.csv')
 
 
 if __name__ == '__main__':
