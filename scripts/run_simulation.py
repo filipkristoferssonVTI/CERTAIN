@@ -11,7 +11,7 @@ def create_response_units(real_events: pd.DataFrame, event_type: str) -> list[Re
     """If dur info is missing for a vehicle, the mean dur of all vehicle within the same event type is used."""
 
     def get_dur(arrived, finished):
-        if pd.notna(arrived) and pd.notna(finished):
+        if pd.notna(arrived) and pd.notna(finished) and arrived <= finished:
             return int((finished - arrived).total_seconds())
         elif pd.notna(mean_dur):
             return mean_dur

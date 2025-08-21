@@ -93,7 +93,13 @@ class Mission:
 class ResponseUnitImpl(ResponseUnit):
 
     def __init__(self, vehicles: list[dict]):
-        self._vehicles = vehicles
+        self._vehicles = self._validate_vehicles(vehicles)
+
+    @staticmethod
+    def _validate_vehicles(vehicles: list[dict]):
+        for v in vehicles:
+            assert 0 <= v['dur']
+        return vehicles
 
     def get_veh_types(self):
         max_dur = self.get_max_dur()
@@ -147,25 +153,67 @@ class MissionContainerImpl(MissionContainer):
 class VehicleDataTableImpl(VehicleDataTable):
 
     def __init__(self, energy_table: pd.DataFrame):
-        self.energy_table = energy_table
+        self._energy_table = self._validate_energy_table(energy_table)
 
-    def get_battery_cap(self, veh_type):
-        return self.energy_table.loc[veh_type, 'battery_cap']
+    @staticmethod
+    def _validate_energy_table(energy_table):
+        required_cols = {"battery_cap", "energy_need", "charge_time", "max_speed"}
+        missing = required_cols - set(energy_table.columns)
+        if missing:
+            raise ValueError(f"energy_table missing required columns: {sorted(missing)}")
 
-    def get_energy_need(self, veh_type):
-        return self.energy_table.loc[veh_type, 'energy_need']
+        if energy_table.index.hasnans:
+            raise ValueError("energy_table index contains nulls")
 
-    def get_charge_time(self, veh_type):
-        return self.energy_table.loc[veh_type, 'charge_time']
+        if energy_table[list(required_cols)].isna().any().any():
+            raise ValueError("energy_table contains nulls in required columns")
 
-    def get_max_speed(self, veh_type):
-        return self.energy_table.loc[veh_type, 'max_speed']
+        return energy_table
+
+    def _row(self, veh_type: str) -> pd.Series:
+        try:
+            return self._energy_table.loc[str(veh_type)]
+        except KeyError as e:
+            raise KeyError(f"Unknown veh_type {veh_type!r}") from e
+
+    def get_battery_cap(self, veh_type) -> float:
+        return float(self._row(veh_type)["battery_cap"])
+
+    def get_energy_need(self, veh_type) -> float:
+        return float(self._row(veh_type)["energy_need"])
+
+    def get_charge_time(self, veh_type) -> float:
+        return float(self._row(veh_type)["charge_time"])
+
+    def get_max_speed(self, veh_type) -> float:
+        return float(self._row(veh_type)["max_speed"])
 
 
 class TravelTimeModelImpl(TravelTimeModel):
 
     def __init__(self, od_matrix: pd.DataFrame):
-        self.od = self._sort_od_matrix(od_matrix)
+        self.od = self._sort_od_matrix(self._validate_od_matrix(od_matrix))
+
+    @staticmethod
+    def _validate_od_matrix(od_matrix):
+        missing = {"cell_id", "station_id", "dist_m"} - set(od_matrix.columns)
+        if missing:
+            raise ValueError(f"od_matrix missing required columns: {sorted(missing)}")
+
+        # Enforce unique (cell_id, station_id) pairs
+        dup_mask = od_matrix.duplicated(subset=["cell_id", "station_id"], keep=False)
+        if dup_mask.any():
+            dups = od_matrix.loc[dup_mask, ["cell_id", "station_id"]].drop_duplicates()
+            pairs = [tuple(x) for x in dups.to_numpy()]
+            raise ValueError(f"Duplicate (cell_id, station_id) pairs found: {pairs}")
+
+        if od_matrix["dist_m"].isna().any():
+            raise ValueError("dist_m contains nulls (None/NaN)")
+
+        if (od_matrix["dist_m"] < 0).any():
+            raise ValueError("dist_m must be >= 0")
+
+        return od_matrix
 
     @staticmethod
     def _sort_od_matrix(od_matrix):
