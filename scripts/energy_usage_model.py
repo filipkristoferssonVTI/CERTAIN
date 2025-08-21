@@ -97,7 +97,7 @@ def plot_distance_from_firestation_map(dist_df, firestation_df, fire_station):
 def main():
     fire_station_plot = 'Vikingstad'
 
-    data_folder = Path('data')
+    data_folder = Path('../data')
 
     # Process fire station data into gdf
     fire_stations = process_fire_stations(data_folder)

@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.express as px
 from shapely import Point
 
-from data_analysis import clean_data, group_data
+from archive.data_analysis import clean_data, group_data
 
 
 def assign_geometry(df, x_col, y_col, crs):
@@ -90,7 +90,7 @@ def add_time_of_year(arenden):
 
 
 def main():
-    data_folder = Path('data')
+    data_folder = Path('../data')
 
     road = gpd.read_file(data_folder / 'gis' / 'lastkajen' / 'Vägslag_516890.gpkg')
     mark = gpd.read_file(data_folder / 'gis' / 'Topografi 50 Nedladdning, vektor' / 'mark_sverige.gpkg', layer='mark')

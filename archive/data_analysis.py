@@ -141,7 +141,7 @@ def plot_handelse_insatsstyrka_coverage(data):
 
 
 def main():
-    data_folder = Path('data')
+    data_folder = Path('../data')
     df = pd.read_csv(data_folder / 'Kopia av Daedalos export - Insatta resurser 2201 2411.csv', sep=';', skipfooter=1,
                      engine='python')
 

@@ -26,7 +26,7 @@ def create_pdf_from_folder(folder_name, save_path):
 
 
 def create_qgis_data():
-    data_folder = Path('data/output')
+    data_folder = Path('../data/output')
     events = pd.read_csv(data_folder / 'estimated_simulated_events.csv', dtype={'rut_id': str})
     grid = pd.read_pickle(data_folder / 'grid.pkl')
 
@@ -53,7 +53,7 @@ def create_qgis_data():
 
 
 def plot_events():
-    data_folder = Path('data/output')
+    data_folder = Path('../data/output')
     events = pd.read_csv(data_folder / 'estimated_simulated_events.csv')
     output_path = data_folder / 'plots' / 'event_plots.pdf'
 
@@ -106,7 +106,7 @@ def plot_events():
 
 
 def run_simulation_single_event():
-    data_folder = Path('data/output')
+    data_folder = Path('../data/output')
 
     area_C_MA_all = pd.read_pickle(data_folder / 'grid.pkl').set_index('rut_id').drop(columns='geometry')
     beta_MA_HA_all = pd.read_csv(data_folder / 'coefficients.csv', index_col=0)
@@ -142,7 +142,7 @@ def run_simulation_single_event():
 
 
 def run_simulation():
-    data_folder = Path('data/output')
+    data_folder = Path('../data/output')
 
     area_C_MA_all = pd.read_pickle(data_folder / 'grid.pkl').set_index('rut_id').drop(columns='geometry')
     beta_MA_HA_all = pd.read_csv(data_folder / 'coefficients.csv', index_col=0)

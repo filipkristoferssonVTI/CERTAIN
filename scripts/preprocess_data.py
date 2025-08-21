@@ -89,7 +89,7 @@ def assign_geometry(df, x_col, y_col, crs):
 
 
 def main():
-    data_folder = Path('data')
+    data_folder = Path('../data')
 
     grid = get_grid(data_folder)
 

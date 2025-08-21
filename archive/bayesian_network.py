@@ -34,7 +34,7 @@ def filter_data(df):
 
 
 def main():
-    data_folder = Path('data')
+    data_folder = Path('../data')
     df = pd.read_csv(data_folder / 'Kopia av Daedalos export - Insatta resurser 2201 2411.csv', sep=';')
 
     df = filter_data(df)

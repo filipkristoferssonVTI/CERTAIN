@@ -26,7 +26,7 @@ def poisson_neg_log_likelihood(beta, X, y):
 
 
 def generate_coefficients():
-    data_folder = Path('data/output')
+    data_folder = Path('../data/output')
 
     events = pd.read_pickle(data_folder / 'processed_events.pkl')
     grid = pd.read_pickle(data_folder / 'grid.pkl')
@@ -79,7 +79,7 @@ def generate_coefficients():
 
 
 def generate_lambda_vals():
-    data_folder = Path('data/output')
+    data_folder = Path('../data/output')
 
     area_C_MA_all = pd.read_pickle(data_folder / 'grid.pkl').set_index('rut_id').drop(columns='geometry')
     beta_MA_HA_all = pd.read_csv(data_folder / 'coefficients.csv', index_col=0)
