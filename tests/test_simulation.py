@@ -141,7 +141,8 @@ def test_vehicle_container_get_vehicle_get_opt_arrival_time(vehicles, od_matrix,
             dist = ttm.get_distance(v.station, mission.cell_id)
             next_avail_time = v.next_avail_time
             max_speed = vdt.get_max_speed(veh_type)
-            arrival_time = next_avail_time + dist / max_speed
+            tt = math.ceil(dist / max_speed)
+            arrival_time = next_avail_time + tt
             if arrival_time < min_arrival_time:
                 min_arrival_time = arrival_time
                 selected_vehicle = v

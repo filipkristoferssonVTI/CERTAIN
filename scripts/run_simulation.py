@@ -18,6 +18,9 @@ def create_response_units(real_events: pd.DataFrame, event_type: str) -> list[Re
         else:
             raise ValueError(f'No duration found for event type: {event_type}.')
 
+    if event_type not in real_events['Händelse, typ'].values:
+        raise ValueError(f"Invalid event_type '{event_type}'.")
+
     event_type_group = real_events.loc[real_events['Händelse, typ'] == event_type].copy()
     mean_dur_df = event_type_group.dropna(subset=['Resurs, tid framme', 'Resurs, tid klar'])
     mean_dur = (mean_dur_df['Resurs, tid klar'] - mean_dur_df['Resurs, tid framme']).dt.total_seconds().mean()
@@ -45,7 +48,8 @@ def create_vehicles(real_events: pd.DataFrame, energy_table: VehicleDataTable) -
     return VehicleContainerImpl(vehicles)
 
 
-def process_od_matrix(od_matrix: pd.DataFrame) -> pd.DataFrame:
+def process_od_matrix(csv_path: Path) -> pd.DataFrame:
+    od_matrix = pd.read_csv(csv_path, sep=',', skipfooter=1, engine='python', dtype={'destination_id': str})
     od_matrix = od_matrix.rename(columns={'origin_id': 'fire_station',
                                           'destination_id': 'cell_id',
                                           'total_cost': 'dist_m'})
@@ -108,20 +112,25 @@ def main():
 
     real_event_data = pd.read_pickle(path / 'output' / 'processed_events.pkl')
     lambda_vals = pd.read_csv(path / 'output' / 'lambda_vals.csv', dtype={'cell_id': str})
-    od_matrix = process_od_matrix(
-        pd.read_csv(path / 'od_matrix.csv', sep=',', skipfooter=1, engine='python', dtype={'destination_id': str}))
+    od_matrix = process_od_matrix(path / 'od_matrix.csv')
     energy_table = pd.read_excel(path / 'Energianvändning_fordonskoder.xlsx')
+
+    known_veh_types = ['10', '80', '60', '70', '40', '30', '65', '08', '67', '20']
+
+    print(f'Rows in real_event_data: {len(real_event_data)}')
 
     # We only keep events that are associated with known stations
     real_event_data = real_event_data[
         real_event_data['Resurs, station'].str[-4:].isin(od_matrix['station_id'].unique())]
 
-    known_veh_types = ['10', '80', '60', '70', '40', '30', '65', '08', '67', '20']
+    print(f'Rows in real_event_data: {len(real_event_data)}')
 
     # We only keep vehicles that are associated with known vehicle types
     real_event_data = real_event_data[real_event_data['veh_type'].isin(known_veh_types)]
 
-    energy_table = process_energy_table(energy_table, real_event_data['veh_type'].unique().tolist())
+    print(f'Rows in real_event_data: {len(real_event_data)}')
+
+    energy_table = process_energy_table(energy_table, known_veh_types)
 
     energy_table = VehicleDataTableImpl(energy_table)
     travel_time_model = TravelTimeModelImpl(od_matrix)

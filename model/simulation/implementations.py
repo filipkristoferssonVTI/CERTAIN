@@ -1,7 +1,6 @@
 import math
 import random
-from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from functools import lru_cache
 
 import pandas as pd
@@ -17,6 +16,12 @@ class Vehicle:
     type: str
     battery_level: float
     next_avail_time: int = 0
+
+    def __post_init__(self):
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if value is None:
+                raise ValueError(f"Field '{f.name}' cannot be None")
 
 
 class Mission:
@@ -237,17 +242,26 @@ class TravelTimeModelImpl(TravelTimeModel):
 class VehicleContainerImpl(VehicleContainer):
 
     def __init__(self, vehicles: list[Vehicle]):
+        if not vehicles:
+            raise ValueError("vehicles cannot be empty")
         self.vehicles = self._structure_vehicles(vehicles)
 
     @staticmethod
-    def _structure_vehicles(vehicles: list[Vehicle]) -> dict:
-        vehicles_structured = defaultdict(list)
+    def _structure_vehicles(vehicles: list[Vehicle]) -> dict[str, list[Vehicle]]:
+        buckets = {}
         for v in vehicles:
-            vehicles_structured[v.type].append(v)
-        return vehicles_structured
+            if not hasattr(v, "type"):
+                raise TypeError("Each Vehicle must have a 'type' attribute")
+            buckets.setdefault(v.type, []).append(v)
+        return buckets
 
     def get_vehicle(self, veh_type: str, cell_id: str, travel_time_model: TravelTimeModel,
                     energy_table: VehicleDataTable):
+        """
+        Returns the vehicle with the shortest arrival time,
+        based on both availability (next_avail_time) and travel time to the cell.
+
+        """
         max_speed = energy_table.get_max_speed(veh_type)
         return min(self.vehicles[veh_type],
                    key=lambda veh: veh.next_avail_time + travel_time_model.get_travel_time(max_speed,
@@ -256,9 +270,9 @@ class VehicleContainerImpl(VehicleContainer):
 
     def get_opt_arrival_time(self, veh_type: str, mission: Mission, travel_time_model: TravelTimeModel,
                              energy_table: VehicleDataTable):
+        """Returns the optimal arrival time by assuming that all vehicles are available."""
         max_speed = energy_table.get_max_speed(veh_type)
         cell_id = mission.cell_id
-
         vehicle = min(self.vehicles[veh_type], key=lambda veh: travel_time_model.get_travel_time(max_speed,
                                                                                                  veh.station,
                                                                                                  cell_id))
@@ -310,9 +324,27 @@ class VehicleContainerImpl(VehicleContainer):
 
 class RegrModelImpl(RegrModel):
     def __init__(self, lambda_vals: pd.DataFrame):
-        self.lambda_vals = lambda_vals
+        self.lambda_vals = self._validate_lambda_vals(lambda_vals)
+
+    @staticmethod
+    def _validate_lambda_vals(lambda_vals):
+        missing = {"event_type", "lambda", "cell_id"} - set(lambda_vals.columns)
+        if missing:
+            raise ValueError(f"lambda_vals missing required columns: {sorted(missing)}")
+
+        # Enforce unique (event_type, cell_id) pairs
+        dup_mask = lambda_vals.duplicated(subset=["event_type", "cell_id"], keep=False)
+        if dup_mask.any():
+            dups = lambda_vals.loc[dup_mask, ["event_type", "cell_id"]].drop_duplicates()
+            pairs = [tuple(x) for x in dups.to_numpy()]
+            raise ValueError(f"Duplicate (event_type, cell_id) pairs found: {pairs}")
+
+        return lambda_vals
 
     def gen_missions(self, event_type):
+        if event_type.type not in self.lambda_vals['event_type'].values:
+            raise ValueError(f"Invalid event_type '{event_type.type}'.")
+
         filtered_lambda_vals = self.lambda_vals.loc[self.lambda_vals['event_type'] == event_type.type].copy()
         filtered_lambda_vals['occurrences'] = poisson.rvs(filtered_lambda_vals['lambda'])
         filtered_lambda_vals = filtered_lambda_vals.loc[filtered_lambda_vals['occurrences'] != 0]
