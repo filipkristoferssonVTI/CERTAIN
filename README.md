@@ -43,7 +43,7 @@ This project combines **statistical modeling** and **simulation** to study how r
 
 ```mermaid
 graph LR
-    G[Grid (land use data)] --> DM[Design matrix\n(shares + intercept)]
+    G["Grid (land use data)"] --> DM[Design matrix\n(shares + intercept)]
     E[Events (rescues)] --> PR[Poisson regression\n(per event type)]
     DM --> PR
     PR --> C[Coefficients\n(per event type)]
