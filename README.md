@@ -43,11 +43,11 @@ This project combines **statistical modeling** and **simulation** to study how r
 
 ```mermaid
 graph LR
-    G["Grid (land use data)"] --> DM["Design matrix\n(shares + intercept)"]
-    E["Events (rescues)"] --> PR["Poisson regression\n(per event type)"]
+    G["Grid (land use data)"] --> DM["Design matrix (shares + intercept)"]
+    E["Events (rescues)"] --> PR["Poisson regression (per event type)"]
     DM --> PR
-    PR --> C["Coefficients\n(per event type)"]
-    C --> L["Lambda values\n(expected events)"]
+    PR --> C["Coefficients (per event type)"]
+    C --> L["Lambda values (expected events)"]
     DM --> L
 ```
 
@@ -104,11 +104,13 @@ This allows us to compare:
 
 ### Simulation Workflow  
 
+```mermaid
 graph TD
-    L[Lambda values<br/>(expected events)] --> M[Generate missions<br/>(Poisson draws, start times)]
-    M --> RU[Determine response unit<br/>(vehicle types & amounts)]
-    RU --> AV[Assign vehicles<br/>(travel time, availability, charging)]
-    AV --> COMP[Compare times<br/>Optimal vs Simulated arrival]
+    L["Lambda values (expected events)"] --> M["Generate missions (Poisson draws, start times)"]
+    M --> RU["Determine response unit (vehicle types & amounts)"]
+    RU --> AV["Assign vehicles (travel time, availability, charging)"]
+    AV --> COMP[(Compare times - Optimal vs Simulated arrival"]
+```
 
 ---
 
