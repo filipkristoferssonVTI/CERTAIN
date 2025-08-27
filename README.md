@@ -31,7 +31,7 @@ This project combines **statistical modeling** and **simulation** to study how r
 ### Outputs  
 - Estimated **coefficients** (β) for each event type (`coefficients.csv`).  
 - **Lambda values** (λ) for each grid cell and event type (`lambda_vals.csv`).  
-  - These values represent the **best fitted estimates of the expected number of events**, given the land use in each cell.  
+  - These values represent the **best fitted estimates of the expected number of events of a specific type**, given the land use in each cell.  
 
 ---
 
@@ -63,13 +63,11 @@ The simulation setup uses the estimated **lambda values** to generate potential 
    - Provides travel times between grid cells and stations, and defines which vehicles belong to which stations.  
 
 3. **Event generation (missions)**  
-   - Implemented in `RegrModel`.  
-   - Uses the lambda values to simulate events.  
-   - For each grid cell and event type, events are generated with: 
+   - Implemented in `RegrModel`.
+   - For each grid cell and event type, a number of events are generated with: 
    **y ~ Poisson(λ)**
-     - This is the setup right now, but the event generation method can be refined. 
-
-   - Each event becomes a *mission* with a location and start time.  
+   - Each event becomes a *mission* with a location and start time.
+     - As of now, the start time is drawn randomly. This can be refined.
 
 4. **Response units**  
    - A response unit is the required composition and number of vehicles for a given event type.  
@@ -99,7 +97,7 @@ This allows us to compare:
 
 ```mermaid
 graph TD
-    L["Lambda values (expected events)"] --> M["Generate missions (Poisson draws, start times)"]
+    L["Lambda values (expected events)"] --> M["Generate missions (occurrences (Poisson draws), start times)"]
     M --> RU["Determine response unit (vehicle types & amounts)"]
     RU --> UV["Assign vehicles (travel time, availability)"]
     UV --> AV["Update vehicle fleet  (next available time for each vehicle)"]
