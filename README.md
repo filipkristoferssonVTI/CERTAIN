@@ -3,7 +3,7 @@
 This project combines **statistical modeling** and **simulation** to study how rescue service fleets perform under different scenarios.  
 
 - **Part 1: Regression model (`poisson_regression.py`)**  
-  Estimates how land use is related to the occurrence of rescue service interventions (e.g., accidents, fires, or other events) using **Poisson regression**. This produces expected event rates (\(\lambda\)) for each grid cell and event type.  
+  Estimates how land use is related to the occurrence of rescue service interventions (e.g., accidents, fires, or other events) using **Poisson regression**. This produces expected event rates (λ) for each grid cell and event type.  
 
 - **Part 2: Simulation model (`run_simulation.py`)**  
   Uses the expected event rates to simulate potential future events across the grid. These simulated events are then matched with rescue interventions, allowing us to test how well different rescue vehicle fleets perform.  
@@ -27,14 +27,14 @@ This project combines **statistical modeling** and **simulation** to study how r
 - A **Poisson regression** is fitted for each event type:  
 
   \[
-  \log(\lambda) = X \beta
+  \log(λ) = X \beta
   \]
 
 - The coefficients are estimated by **maximum likelihood**, by minimizing the negative log-likelihood.  
 
 ### Outputs  
 - Estimated **coefficients** for each event type (`coefficients.csv`).  
-- **Lambda values** (\(\hat{\lambda}\)) for each grid cell and event type (`lambda_vals.csv`).  
+- **Lambda values** (\(\hat{λ}\)) for each grid cell and event type (`lambda_vals.csv`).  
   - These values represent the **best fitted estimates of the expected number of events**, given the land use in each cell.  
 
 ---
