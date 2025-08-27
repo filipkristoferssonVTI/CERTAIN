@@ -100,7 +100,7 @@ graph TD
     L["Lambda values (expected events)"] --> M["Generate missions (occurrences (Poisson draws), start times)"]
     M --> RU["Determine response unit (vehicle types & amounts)"]
     RU --> UV["Assign vehicles (travel time, availability)"]
-    UV --> AV["Update vehicle fleet  (next available time for each vehicle)"]
+    UV --> AV["Update vehicle fleet (next available time for each vehicle)"]
     AV --> COMP["(Compare times - Optimal vs Simulated arrival"]
 ```
 
