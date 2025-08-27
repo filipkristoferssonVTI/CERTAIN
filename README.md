@@ -101,7 +101,7 @@ graph TD
     M --> RU["Determine response unit (vehicle types & amounts)"]
     RU --> UV["Assign vehicles (travel time, availability)"]
     UV --> AV["Update vehicle fleet (next available time for each vehicle)"]
-    AV --> COMP["(Compare times - Optimal vs Simulated arrival"]
+    AV --> COMP["Compare response times - Optimal vs Simulated arrival"]
 ```
 
 ---
