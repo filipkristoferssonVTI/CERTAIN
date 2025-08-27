@@ -41,6 +41,7 @@ This project combines **statistical modeling** and **simulation** to study how r
 
 ### Regression Workflow  
 
+```mermaid
 graph LR
     G[Grid (land use data)] --> DM[Design matrix<br/>(shares + intercept)]
     E[Events (rescues)] --> PR[Poisson regression<br/>(per event type)]
@@ -48,6 +49,7 @@ graph LR
     PR --> C[Coefficients<br/>(per event type)]
     C --> L[Lambda values<br/>(expected events)]
     DM --> L
+```
 
 ---
 
