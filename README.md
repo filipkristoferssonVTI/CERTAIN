@@ -18,7 +18,7 @@ This project combines **statistical modeling** and **simulation** to study how r
 - **Event data**: observed rescue interventions linked to grid cells.  
 
 ### Method  
-- A **design matrix** is built from the grid:  
+- A **design matrix** (X) is built from the grid:  
   - Each column describes the share of land use types in a cell (area relative to the whole cell).  
   - An **intercept column** of ones is added.  
     - The intercept captures a *baseline level of events* that cannot be explained by land use alone.  
