@@ -22,13 +22,12 @@ This project combines **statistical modeling** and **simulation** to study how r
   - Each column describes the share of land use types in a cell (area relative to the whole cell).  
   - An **intercept column** of ones is added.  
     - The intercept captures a *baseline level of events* that cannot be explained by land use alone.  
-    - This is important because even if the explanatory land use shares are zero (or very small), events may still occur. The intercept ensures the model can account for this baseline, while the land use coefficients describe how different land uses shift event frequencies relative to it.  
 
-- **Observed event counts (y)** are aggregated to the grid level (number of interventions per cell).  
+- **Observed event counts (y)** are aggregated to the grid level (number of interventions per cell per event type).  
 
 - A **Poisson regression model** is then specified for each event type:  
 
-  `y_i ~ Poisson(λ_i),   with   log(λ_i) = X_i β`  
+  `yᵢ ~ Poisson(λᵢ),   with   log(λᵢ) = Xᵢβ`  
 
   - Here, y are the observed counts.  
   - λ are the expected counts according to the model (not known beforehand).  
