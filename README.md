@@ -18,15 +18,27 @@ This project combines **statistical modeling** and **simulation** to study how r
 - **Event data**: observed rescue interventions linked to grid cells.  
 
 ### Method  
-- A **design matrix** (X) is built from the grid:  
+- A **design matrix (X)** is built from the grid:  
   - Each column describes the share of land use types in a cell (area relative to the whole cell).  
   - An **intercept column** of ones is added.  
     - The intercept captures a *baseline level of events* that cannot be explained by land use alone.  
-- Events are aggregated to the grid level (number of interventions per cell).  
-- A **Poisson regression** is fitted for each event type: 
-**log(λ) = Xβ**
+    - This is important because even if the explanatory land use shares are zero (or very small), events may still occur. The intercept ensures the model can account for this baseline, while the land use coefficients describe how different land uses shift event frequencies relative to it.  
 
-- The coefficients are estimated by **maximum likelihood**, by minimizing the negative log-likelihood.  
+- **Observed event counts (y)** are aggregated to the grid level (number of interventions per cell).  
+
+- A **Poisson regression model** is then specified for each event type:  
+
+  `y_i ~ Poisson(λ_i),   with   log(λ_i) = X_i β`  
+
+  - Here, y are the observed counts.  
+  - λ are the expected counts according to the model (not known beforehand).  
+  - β are the coefficients to be estimated.  
+
+- The coefficients (β) are estimated by **maximum likelihood**, by minimizing the negative log-likelihood.  
+
+- Once β has been estimated, the expected values (λ) can be calculated for each cell as:  
+
+  `λ = exp(Xβ)`  
 
 ### Outputs  
 - Estimated **coefficients** (β) for each event type (`coefficients.csv`).  
