@@ -253,7 +253,7 @@ def get_energy_table(data_folder):
     energy_table = energy_table.reset_index(names='veh_type')
 
     return energy_table[[
-        'veh_type'
+        'veh_type',
         'energy_need',
         'battery_cap',
         'charge_time',
