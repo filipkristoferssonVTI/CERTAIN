@@ -62,14 +62,14 @@ def clean_data(df):
     return df
 
 
-def get_grid(data_folder):
+def get_grid(data_folder, selected_county):
     mark = gpd.read_file(data_folder / 'gis' / 'Topografi 50 Nedladdning, vektor' / 'mark_sverige.gpkg', layer='mark')
     grid = gpd.read_file(data_folder / 'gis' / 'scb' / 'TotRut_SweRef.gpkg')
     counties = gpd.read_file(
         data_folder / 'gis' / 'Topografi 1M Nedladdning, vektor' / 'administrativindelning_sverige.gpkg',
         layer='lansyta')
 
-    case_area = counties.loc[counties['lansnamn'] == 'Östergötlands län']
+    case_area = counties.loc[counties['lansnamn'] == selected_county]
 
     grid = gpd.sjoin(grid, case_area, how='inner', predicate='intersects')
     grid = grid[['rut_id', 'geometry']]
@@ -91,7 +91,7 @@ def assign_geometry(df, x_col, y_col, crs):
 def main():
     data_folder = Path('../data')
 
-    grid = get_grid(data_folder)
+    grid = get_grid(data_folder, 'Östergötlands län')
 
     data = pd.read_csv(data_folder / 'Kopia av Daedalos export - Insatta resurser 2201 2411.csv',
                        sep=';',

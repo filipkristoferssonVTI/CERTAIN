@@ -71,8 +71,6 @@ class Mission:
 
     @property
     def opt_response_time(self):
-        if self._opt_response_time is None:
-            raise ValueError("Optimal response time needs to be set!")
         return self._opt_response_time
 
     def set_simu_response_time(self, time: int):
@@ -82,8 +80,6 @@ class Mission:
 
     @property
     def simu_response_time(self):
-        if self._simu_response_time is None:
-            raise ValueError("Simulated response time needs to be set!")
         return self._simu_response_time
 
     def to_dict(self):
